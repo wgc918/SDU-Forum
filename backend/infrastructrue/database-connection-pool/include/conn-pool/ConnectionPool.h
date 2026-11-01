@@ -1,0 +1,131 @@
+/// 数据库连接池（多数据库类型单例）
+///
+/// 设计要点：
+/// 1. 通过 DatabaseType 枚举区分不同数据库类型
+/// 2. 每种数据库类型最多存在一个连接池实例（单例）
+/// 3. instance() 方法接受 DatabaseType 参数，返回对应类型的唯一实例
+/// 4. 线程安全：instance() 内部使用互斥锁保护实例创建
+///
+
+#pragma once
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <queue>
+#include <thread>
+#include <unordered_map>
+#include <utility>
+
+#include "../database/DatabaseType.h"
+#include "../database/IConnectionFactory.h"
+#include "../database/IDatabaseConnection.h"
+#include "../monitor/IHealthChecker.h"
+#include "../monitor/PoolStatistics.h"
+
+namespace dcp
+{
+
+class PooledConnGuard;
+
+class ConnectionPool
+{
+    friend class PooledConnGuard;
+
+public:
+    // ---- 禁用拷贝与移动 ----
+    ConnectionPool(const ConnectionPool& other)            = delete;
+    ConnectionPool(ConnectionPool&& other)                 = delete;
+    ConnectionPool& operator=(const ConnectionPool& other) = delete;
+    ConnectionPool& operator=(ConnectionPool&& other)      = delete;
+
+    /// 获取指定数据库类型的连接池单例
+    /// @param type 数据库类型
+    /// @return 该类型对应的唯一连接池实例引用
+    static ConnectionPool& instance(DatabaseType type);
+
+    static void destroy_instance(DatabaseType type);
+
+    // ---- 初始化 ----
+
+    void init(const ConnectionConfig& cfg);
+    void init(const ConnectionConfig& cf, int min, int max, int idle_time, int timeout, int op_num);
+
+    // ---- 连接借还 ----
+    PooledConnGuard get_connection();
+
+    // ---- 参数配置 ----非线程安全，应在主线程中统一配置
+    void set_min_size(int val);
+    void set_max_size(int val);
+    void set_max_idle_time(int val);
+    void set_timeout(int val);
+
+    int get_min_size() const;
+    int get_max_size() const;
+    int get_max_idle_time() const;
+    int get_timeout() const;
+
+    // ---- 统计信息 ----
+    /// 获取连接池运行统计信息
+    PoolStatistics get_statistics() const;
+
+    // ---- 生命周期 ----
+    /// 关闭连接池，释放所有连接
+    void shutdown();
+
+    /// 返回当前连接池对应的数据库类型
+    DatabaseType get_database_type() const;
+
+private:
+    ConnectionPool(DatabaseType type);
+    ~ConnectionPool();
+
+    void return_connection(IDatabaseConnection* conn);
+    void source_connections();
+    void expand_connections();  // 扩容连接池
+
+    /// 启动空闲连接回收线程
+    void start_recycle_thread();
+
+    /// 停止空闲连接回收线程
+    void stop_recycle_thread();
+
+    /// 回收超时空闲连接（由回收线程调用）
+    void recycle_idle_connections();
+
+    /// 销毁一个连接并更新计数
+    void destroy_connection(IDatabaseConnection* conn);
+
+private:
+    // ---- 多类型单例管理 ----
+    static std::mutex                                        s_instance_mutex;
+    static std::unordered_map<DatabaseType, ConnectionPool*> s_instances;
+
+    // ---- 连接管理 ----
+    /// 连接队列元素：连接指针 + 最后使用时间
+    using ConnEntry = std::pair<IDatabaseConnection*, std::chrono::steady_clock::time_point>;
+    std::queue<ConnEntry>   m_conn_queue;
+    std::mutex              m_mutex;
+    std::condition_variable m_cv_empty;
+    // std::condition_variable          m_cv_full;
+
+    // ---- 配置 ----
+    DatabaseType        m_db_type;
+    ConnectionConfig    m_cfg;
+    IConnectionFactory* m_factory;
+    // IHealthChecker*     m_health_checker;
+
+    int  m_min_size;       // 连接池维护的最小连接数
+    int  m_max_size;       // 连接池维护的最大连接数
+    int  m_max_idle_time;  // 连接池中连接的最大空闲时长（秒）
+    int  m_timeout;        // 连接池获取连接的超时时长（毫秒）
+    int  m_op_num;         // 一次增加或减少的连接数
+    int  m_current_size;   // 当前总连接数（包括已借出和在队列中的）
+    bool m_initialized;    // 是否已完成初始化=
+
+    // ---- 回收线程 ----
+    std::thread       m_recycle_thread;
+    std::atomic<bool> m_recycle_running;
+};
+
+}  // namespace dcp
