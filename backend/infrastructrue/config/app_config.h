@@ -1,0 +1,84 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+
+namespace infra
+{
+
+struct ServerConfig
+{
+    std::string address   = "0.0.0.0";
+    uint16_t    port      = 8080;
+    size_t      thread_num = 4;
+};
+
+struct LoggingConfig
+{
+    std::string level     = "INFO";
+    std::string file      = "logs/server.log";
+    bool        console   = true;
+    size_t      max_lines = 100000;
+};
+
+struct DatabaseConfig
+{
+    std::string host           = "127.0.0.1";
+    uint16_t    port           = 3306;
+    std::string user;
+    std::string password;
+    std::string dbname;
+    int         pool_min            = 5;
+    int         pool_max            = 30;
+    int         max_idle_time       = 300;
+    int         connection_timeout  = 3000;
+    int         op_num              = 4;
+};
+
+struct JwtConfig
+{
+    std::string issuer;
+    std::string access_secret;
+    std::string refresh_secret;
+    int         access_token_minutes = 60;
+    int         refresh_token_hours  = 168;
+};
+
+struct AuthConfig
+{
+    std::string account_table   = "account";
+    std::string blacklist_table = "account_blacklist";
+};
+
+/// 进程级配置，启动时从 INI 文件加载一次
+class AppConfig
+{
+public:
+    static AppConfig& instance();
+
+    AppConfig(const AppConfig&)            = delete;
+    AppConfig& operator=(const AppConfig&) = delete;
+
+    /// @throws std::runtime_error 配置文件不存在或配置项非法
+    void load(const std::string& path);
+
+    const ServerConfig&   server() const noexcept;
+    const LoggingConfig&  logging() const noexcept;
+    const DatabaseConfig& database() const noexcept;
+    const JwtConfig&      jwt() const noexcept;
+    const AuthConfig&     auth() const noexcept;
+
+private:
+    AppConfig() = default;
+
+    void validate() const;
+
+    ServerConfig   m_server;
+    LoggingConfig  m_logging;
+    DatabaseConfig m_database;
+    JwtConfig      m_jwt;
+    AuthConfig     m_auth;
+};
+
+}  // namespace infra

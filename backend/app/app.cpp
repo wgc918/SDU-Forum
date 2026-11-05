@@ -1,46 +1,95 @@
-#include <chrono>
 #include <drogon/drogon.h>
-#include <iomanip>
-#include <iostream>
-using namespace drogon;
 
-std::string getCurrentTime() {
-  auto now = std::chrono::system_clock::now();
-  auto time_t = std::chrono::system_clock::to_time_t(now);
-  std::stringstream ss;
-  ss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
-  return ss.str();
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <string>
+
+#include "app/app_context.h"
+#include "config/app_config.h"
+#include "log.h"
+
+namespace
+{
+
+std::string locate_config(int argc, char** argv)
+{
+    if (const char* from_env = std::getenv("SDU_FORUM_CONFIG"); from_env != nullptr && *from_env)
+        return from_env;
+
+    if (argc > 1)
+        return argv[1];
+
+    for (const char* candidate :
+         {"config/config-dev.ini", "../config/config-dev.ini", "../../config/config-dev.ini"})
+    {
+        std::ifstream probe(candidate);
+        if (probe.is_open())
+            return candidate;
+    }
+
+    return "config/config-dev.ini";
 }
 
-int main() {
-  // 添加全局中间件记录所有请求
-  app().registerPostHandlingAdvice(
-      [](const HttpRequestPtr &req, const HttpResponsePtr &resp) {
-        // 这个函数会在每个请求处理完成后调用
-        std::cout << "[" << getCurrentTime() << "] " << req->methodString()
-                  << " " << req->path() << " " << resp->getStatusCode() << " "
-                  << "Client: " << req->peerAddr().toIpPort() << std::endl;
-      });
+void init_logger(const infra::LoggingConfig& logging)
+{
+    if (!logging.file.empty())
+    {
+        std::filesystem::path log_path(logging.file);
+        if (log_path.has_parent_path())
+            std::filesystem::create_directories(log_path.parent_path());
+    }
 
-  // 注册路由
-  app().registerHandler(
-      "/hello", [](const HttpRequestPtr &req,
-                   std::function<void(const HttpResponsePtr &)> &&callback) {
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setBody("Hello World");
-        callback(resp);
-      });
+    LogConfig log_config;
+    log_config.file_name = logging.file;
+    log_config.level     = string_to_LogLevel(logging.level);
+    log_config.console   = logging.console;
+    log_config.max_lines = logging.max_lines;
 
-  app().registerHandler(
-      "/json", [](const HttpRequestPtr &req,
-                  std::function<void(const HttpResponsePtr &)> &&callback) {
-        Json::Value json;
-        json["message"] = "Hello JSON";
-        json["status"] = "success";
-        auto resp = HttpResponse::newHttpJsonResponse(json);
-        callback(resp);
-      });
+    Logger::instance().init(log_config);
+}
 
-  app().addListener("0.0.0.0", 8080);
-  app().run();
+}  // namespace
+
+int main(int argc, char** argv)
+{
+    try
+    {
+        const std::string config_path = locate_config(argc, argv);
+        infra::AppConfig::instance().load(config_path);
+
+        const auto& config = infra::AppConfig::instance();
+        init_logger(config.logging());
+        LOGI("%s", (std::string("configuration loaded: ") + config_path).c_str());
+
+        app::AppContext context(config);
+        context.init_infrastructure();
+        context.register_routes();
+
+        drogon::app().registerPostHandlingAdvice(
+            [](const drogon::HttpRequestPtr&  req,
+               const drogon::HttpResponsePtr& resp)
+            {
+                LOGI("%s", (std::string(req->methodString()) + " " + req->path() + " -> " +
+                            std::to_string(static_cast<int>(resp->getStatusCode())))
+                               .c_str());
+            });
+
+        drogon::app().addListener(config.server().address, config.server().port);
+        drogon::app().setThreadNum(config.server().thread_num);
+
+        LOGI("%s", (std::string("server listening on ") + config.server().address + ":" +
+                    std::to_string(config.server().port))
+                       .c_str());
+
+        drogon::app().run();
+    }
+    catch (const std::exception& e)
+    {
+        std::fprintf(stderr, "failed to start server: %s\n", e.what());
+        return 1;
+    }
+
+    return 0;
 }
