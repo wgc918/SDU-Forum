@@ -9,8 +9,8 @@ namespace infra
 
 struct ServerConfig
 {
-    std::string address   = "0.0.0.0";
-    uint16_t    port      = 8080;
+    std::string address    = "0.0.0.0";
+    uint16_t    port       = 8080;
     size_t      thread_num = 4;
 };
 
@@ -24,16 +24,16 @@ struct LoggingConfig
 
 struct DatabaseConfig
 {
-    std::string host           = "127.0.0.1";
-    uint16_t    port           = 3306;
+    std::string host = "127.0.0.1";
+    uint16_t    port = 3306;
     std::string user;
     std::string password;
     std::string dbname;
-    int         pool_min            = 5;
-    int         pool_max            = 30;
-    int         max_idle_time       = 300;
-    int         connection_timeout  = 3000;
-    int         op_num              = 4;
+    int         pool_min           = 5;
+    int         pool_max           = 30;
+    int         max_idle_time      = 300;
+    int         connection_timeout = 3000;
+    int         op_num             = 4;
 };
 
 struct JwtConfig
@@ -63,11 +63,11 @@ public:
     /// @throws std::runtime_error 配置文件不存在或配置项非法
     void load(const std::string& path);
 
-    const ServerConfig&   server() const noexcept;
-    const LoggingConfig&  logging() const noexcept;
+    const ServerConfig& server() const noexcept;
+    const LoggingConfig& logging() const noexcept;
     const DatabaseConfig& database() const noexcept;
-    const JwtConfig&      jwt() const noexcept;
-    const AuthConfig&     auth() const noexcept;
+    const JwtConfig& jwt() const noexcept;
+    const AuthConfig& auth() const noexcept;
 
 private:
     AppConfig() = default;

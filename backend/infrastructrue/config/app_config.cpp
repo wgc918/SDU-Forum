@@ -35,8 +35,8 @@ std::string expand_env(const std::string& raw)
             break;
         }
 
-        std::string expr  = raw.substr(start + 2, end - start - 2);
-        std::string name  = expr;
+        std::string expr = raw.substr(start + 2, end - start - 2);
+        std::string name = expr;
         std::string value_fallback;
 
         std::size_t sep = expr.find(":-");
@@ -117,31 +117,31 @@ void AppConfig::load(const std::string& path)
 
     IniFile::instance().load(path);
 
-    const auto& server = section_of("server");
+    const auto& server  = section_of("server");
     m_server.address    = string_of(server, "address", m_server.address);
     m_server.port       = static_cast<uint16_t>(int_of(server, "port", m_server.port));
     m_server.thread_num = static_cast<size_t>(int_of(server, "thread_num", 4));
 
     const auto& logging = section_of("log");
-    m_logging.level      = string_of(logging, "level", m_logging.level);
-    m_logging.file       = string_of(logging, "file", m_logging.file);
-    m_logging.console    = bool_of(logging, "console", m_logging.console);
-    m_logging.max_lines  = static_cast<size_t>(int_of(logging, "max_lines", 100000));
+    m_logging.level     = string_of(logging, "level", m_logging.level);
+    m_logging.file      = string_of(logging, "file", m_logging.file);
+    m_logging.console   = bool_of(logging, "console", m_logging.console);
+    m_logging.max_lines = static_cast<size_t>(int_of(logging, "max_lines", 100000));
 
-    const auto& database = section_of("database");
-    m_database.host     = string_of(database, "host", m_database.host);
-    m_database.port     = static_cast<uint16_t>(int_of(database, "port", m_database.port));
-    m_database.user     = string_of(database, "user", "");
-    m_database.password = string_of(database, "password", "");
-    m_database.dbname   = string_of(database, "dbname", "");
-    m_database.pool_min           = int_of(database, "pool_min", m_database.pool_min);
-    m_database.pool_max           = int_of(database, "pool_max", m_database.pool_max);
-    m_database.max_idle_time      = int_of(database, "max_idle_time", m_database.max_idle_time);
-    m_database.connection_timeout = int_of(database, "connection_timeout_ms",
-                                           m_database.connection_timeout);
-    m_database.op_num             = int_of(database, "op_num", m_database.op_num);
+    const auto& database     = section_of("database");
+    m_database.host          = string_of(database, "host", m_database.host);
+    m_database.port          = static_cast<uint16_t>(int_of(database, "port", m_database.port));
+    m_database.user          = string_of(database, "user", "");
+    m_database.password      = string_of(database, "password", "");
+    m_database.dbname        = string_of(database, "dbname", "");
+    m_database.pool_min      = int_of(database, "pool_min", m_database.pool_min);
+    m_database.pool_max      = int_of(database, "pool_max", m_database.pool_max);
+    m_database.max_idle_time = int_of(database, "max_idle_time", m_database.max_idle_time);
+    m_database.connection_timeout =
+        int_of(database, "connection_timeout_ms", m_database.connection_timeout);
+    m_database.op_num = int_of(database, "op_num", m_database.op_num);
 
-    const auto& auth = section_of("auth");
+    const auto& auth           = section_of("auth");
     m_jwt.issuer               = string_of(auth, "issuer", "SDU_Forum");
     m_jwt.access_secret        = string_of(auth, "access_jwt_secret", "");
     m_jwt.refresh_secret       = string_of(auth, "refresh_jwt_secret", "");
@@ -162,11 +162,13 @@ void AppConfig::validate() const
     if (m_database.pool_min <= 0 || m_database.pool_max < m_database.pool_min)
         throw std::runtime_error("config items [database.pool_min/pool_max] are invalid");
     if (m_jwt.access_secret.empty() || m_jwt.refresh_secret.empty())
-        throw std::runtime_error("config items [auth.access_jwt_secret/refresh_jwt_secret] are "
-                                 "required");
+        throw std::runtime_error(
+            "config items [auth.access_jwt_secret/refresh_jwt_secret] are "
+            "required");
     if (m_jwt.access_token_minutes <= 0 || m_jwt.refresh_token_hours <= 0)
-        throw std::runtime_error("config items [auth.access_token_minutes/refresh_token_hours] "
-                                 "are invalid");
+        throw std::runtime_error(
+            "config items [auth.access_token_minutes/refresh_token_hours] "
+            "are invalid");
     if (m_auth.account_table.empty() || m_auth.blacklist_table.empty())
         throw std::runtime_error("config items [auth.account_table/blacklist_table] are required");
 }

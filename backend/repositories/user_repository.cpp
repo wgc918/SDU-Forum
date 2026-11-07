@@ -45,7 +45,7 @@ std::optional<AccountRecord> UserRepository::find_account_by_user_id(const std::
     }
     catch (const sql::SQLException& e)
     {
-        LOGE("%s", (std::string("query account failed: ") + e.what()).c_str());
+        LOGE("query account failed: %s", e.what());
         throw common::AppException(common::ErrorCode::DatabaseError, "database query failed");
     }
 }

@@ -1,8 +1,8 @@
 #include "services/auth_service.h"
 
-#include <utility>
-
 #include <json/json.h>
+
+#include <utility>
 
 #include "common/errors.h"
 #include "config/app_config.h"
@@ -43,13 +43,12 @@ LoginResult AuthService::login(const std::string& user_id, const std::string& pa
 
     // 账号不存在与密码错误返回同一结果，避免泄露账号是否存在
     bool credentials_valid =
-        account.has_value() && infra::verify_password(password,
-                                                      infra::PasswordHash{account->password_hash,
-                                                                          account->salt,
-                                                                          account->iterations});
+        account.has_value() &&
+        infra::verify_password(password, infra::PasswordHash{account->password_hash, account->salt,
+                                                             account->iterations});
     if (!credentials_valid)
     {
-        LOGW("%s", (std::string("login failed: user_id=") + user_id).c_str());
+        LOGW("login failed: user_id=%s", user_id.c_str());
         throw common::AppException(common::ErrorCode::InvalidCredentials,
                                    "user id or password is incorrect");
     }
@@ -57,7 +56,7 @@ LoginResult AuthService::login(const std::string& user_id, const std::string& pa
     auto access  = m_access_signer.sign(user_id, m_access_ttl_seconds);
     auto refresh = m_refresh_signer.sign(user_id, m_refresh_ttl_seconds);
 
-    LOGI("%s", (std::string("login succeeded: user_id=") + user_id).c_str());
+    LOGI("login succeeded: user_id=%s", user_id.c_str());
 
     LoginResult result;
     result.user_id           = user_id;

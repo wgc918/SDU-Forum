@@ -37,14 +37,14 @@ std::optional<BlacklistEntry> BlacklistRepository::find_active_by_user_id(
             return std::nullopt;
 
         BlacklistEntry entry;
-        entry.user_id = result->get_string("user_id");
-        entry.reason  = result->is_null("reason") ? "" : result->get_string("reason");
+        entry.user_id  = result->get_string("user_id");
+        entry.reason   = result->is_null("reason") ? "" : result->get_string("reason");
         entry.end_time = result->is_null("end_time") ? "" : result->get_string("end_time");
         return entry;
     }
     catch (const sql::SQLException& e)
     {
-        LOGE("%s", (std::string("query account_blacklist failed: ") + e.what()).c_str());
+        LOGE("query account_blacklist failed: %s", e.what());
         throw common::AppException(common::ErrorCode::DatabaseError, "database query failed");
     }
 }

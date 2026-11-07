@@ -43,9 +43,8 @@ void AppContext::init_infrastructure()
     m_db_pool->init(connection_config, db.pool_min, db.pool_max, db.max_idle_time,
                     db.connection_timeout, db.op_num);
 
-    LOGI("%s", (std::string("database connection pool initialized: ") + db.host + ":" +
-                std::to_string(db.port) + "/" + db.dbname)
-                   .c_str());
+    LOGI("database connection pool initialized: %s:%d/%s", db.host.c_str(), db.port,
+         db.dbname.c_str());
 }
 
 void AppContext::register_routes()

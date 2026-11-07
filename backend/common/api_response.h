@@ -1,8 +1,8 @@
 #pragma once
 
 #include <drogon/HttpResponse.h>
-
 #include <json/json.h>
+
 #include <string>
 
 #include "common/errors.h"

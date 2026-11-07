@@ -25,9 +25,8 @@ class AuthMiddleware : public drogon::HttpMiddleware<AuthMiddleware, false>
 public:
     AuthMiddleware(std::string access_jwt_secret, std::string jwt_issuer);
 
-    void invoke(const drogon::HttpRequestPtr&            req,
-                drogon::MiddlewareNextCallback&&          next_cb,
-                drogon::MiddlewareCallback&&              mcb) override;
+    void invoke(const drogon::HttpRequestPtr& req, drogon::MiddlewareNextCallback&& next_cb,
+                drogon::MiddlewareCallback&& mcb) override;
 
 private:
     infra::TokenSigner m_signer;

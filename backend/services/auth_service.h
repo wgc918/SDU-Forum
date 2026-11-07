@@ -9,7 +9,7 @@ namespace repository
 {
 class BlacklistRepository;
 class UserRepository;
-}
+}  // namespace repository
 
 namespace infra
 {
@@ -39,7 +39,7 @@ public:
     LoginResult login(const std::string& user_id, const std::string& password);
 
 private:
-    repository::UserRepository&     m_users;
+    repository::UserRepository&      m_users;
     repository::BlacklistRepository& m_blacklist;
     infra::TokenSigner               m_access_signer;
     infra::TokenSigner               m_refresh_signer;

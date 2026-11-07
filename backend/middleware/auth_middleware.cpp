@@ -54,7 +54,7 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
 
     if (authorization.empty())
     {
-        LOGW("%s", (std::string("missing authorization header: ") + req->path()).c_str());
+        LOGW("missing authorization header: %s", req->path().c_str());
         mcb(common::error_response(common::ErrorCode::Unauthorized,
                                    "authorization header is required"));
         return;
@@ -62,7 +62,7 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
 
     if (!has_bearer_prefix(authorization))
     {
-        LOGW("%s", (std::string("invalid authorization scheme: ") + req->path()).c_str());
+        LOGW("invalid authorization scheme: %s", req->path().c_str());
         mcb(common::error_response(common::ErrorCode::Unauthorized,
                                    "authorization header must use the Bearer scheme"));
         return;
@@ -79,7 +79,7 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
     auto payload = m_signer.verify(token);
     if (!payload)
     {
-        LOGW("%s", (std::string("invalid or expired access token: ") + req->path()).c_str());
+        LOGW("invalid or expired access token: %s", req->path().c_str());
         mcb(common::error_response(common::ErrorCode::Unauthorized,
                                    "invalid or expired access token"));
         return;

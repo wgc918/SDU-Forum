@@ -1,5 +1,6 @@
 #include "auth/token_signer.h"
 
+#include <json/json.h>
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -9,8 +10,6 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-
-#include <json/json.h>
 
 namespace infra
 {
@@ -64,9 +63,9 @@ bool base64_url_decode(const std::string& input, std::string& output)
     base64.append(padding, '=');
 
     std::vector<unsigned char> buffer(base64.size() / 4 * 3);
-    int written = EVP_DecodeBlock(buffer.data(),
-                                  reinterpret_cast<const unsigned char*>(base64.data()),
-                                  static_cast<int>(base64.size()));
+    int                        written =
+        EVP_DecodeBlock(buffer.data(), reinterpret_cast<const unsigned char*>(base64.data()),
+                        static_cast<int>(base64.size()));
     if (written < 0 || static_cast<std::size_t>(written) < padding)
         return false;
 
@@ -110,8 +109,8 @@ bool is_numeric(const Json::Value& value)
 
 bool parse_json(const std::string& text, Json::Value& output)
 {
-    Json::CharReaderBuilder builder;
-    std::string             errors;
+    Json::CharReaderBuilder           builder;
+    std::string                       errors;
     std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
     return reader->parse(text.data(), text.data() + text.size(), &output, &errors);
 }
@@ -138,8 +137,8 @@ SignedToken TokenSigner::sign(const std::string& user_id, int64_t ttl_seconds) c
     payload["exp"]     = Json::Int64(expires);
     payload["user_id"] = user_id;
 
-    std::string unsigned_token = base64_url_encode(compact_json(header)) + "." +
-                                 base64_url_encode(compact_json(payload));
+    std::string unsigned_token =
+        base64_url_encode(compact_json(header)) + "." + base64_url_encode(compact_json(payload));
 
     std::string signature = base64_url_encode(hmac_sha256(m_secret, unsigned_token));
 

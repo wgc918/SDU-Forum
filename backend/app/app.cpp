@@ -61,7 +61,8 @@ int main(int argc, char** argv)
 
         const auto& config = infra::AppConfig::instance();
         init_logger(config.logging());
-        LOGI("%s", (std::string("configuration loaded: ") + config_path).c_str());
+
+        LOGI("configuration loaded: %s", config_path.c_str());
 
         app::AppContext context(config);
         context.init_infrastructure();
@@ -79,10 +80,7 @@ int main(int argc, char** argv)
         drogon::app().addListener(config.server().address, config.server().port);
         drogon::app().setThreadNum(config.server().thread_num);
 
-        LOGI("%s", (std::string("server listening on ") + config.server().address + ":" +
-                    std::to_string(config.server().port))
-                       .c_str());
-
+        LOGI("server listening on %s:%d", config.server().address.c_str(), config.server().port);
         drogon::app().run();
     }
     catch (const std::exception& e)

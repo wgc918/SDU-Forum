@@ -19,7 +19,7 @@ class AuthController
 public:
     explicit AuthController(service::AuthService& auth_service);
 
-    void login(const drogon::HttpRequestPtr&                    req,
+    void login(const drogon::HttpRequestPtr&                         req,
                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 
 private:

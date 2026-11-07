@@ -13,7 +13,7 @@ namespace controller
 namespace
 {
 
-constexpr std::size_t kMaxUserIdLength = 64;
+constexpr std::size_t kMaxUserIdLength   = 64;
 constexpr std::size_t kMaxPasswordLength = 128;
 
 std::string trim(const std::string& value)
@@ -31,7 +31,7 @@ AuthController::AuthController(service::AuthService& auth_service) : m_auth_serv
 {
 }
 
-void AuthController::login(const drogon::HttpRequestPtr&                       req,
+void AuthController::login(const drogon::HttpRequestPtr&                         req,
                            std::function<void(const drogon::HttpResponsePtr&)>&& callback)
 {
     auto json = req->getJsonObject();
