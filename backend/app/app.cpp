@@ -66,10 +66,10 @@ int main(int argc, char** argv)
         app::AppContext context(config);
         context.init_infrastructure();
         context.register_routes();
+        context.register_middlewares();
 
         drogon::app().registerPostHandlingAdvice(
-            [](const drogon::HttpRequestPtr&  req,
-               const drogon::HttpResponsePtr& resp)
+            [](const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp)
             {
                 LOGI("%s", (std::string(req->methodString()) + " " + req->path() + " -> " +
                             std::to_string(static_cast<int>(resp->getStatusCode())))

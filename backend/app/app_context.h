@@ -3,7 +3,7 @@
 #include <memory>
 
 #include "config/app_config.h"
-#include "controllers/auth_controller.h"
+#include "modules/auth_module.h"
 #include "repositories/blacklist_repository.h"
 #include "repositories/user_repository.h"
 #include "services/auth_service.h"
@@ -34,18 +34,19 @@ public:
     /// 初始化数据库连接池等基础设施
     void init_infrastructure();
 
-    /// 注册异常处理中间件与业务路由
+    /// 注册业务路由
     void register_routes();
+
+    /// 注册中间件
+    void register_middlewares();
 
 private:
     const infra::AppConfig& m_config;
     dcp::ConnectionPool*    m_db_pool;
 
-    repository::UserRepository      m_user_repository;
-    repository::BlacklistRepository m_blacklist_repository;
-    service::AuthService            m_auth_service; 
-    controller::AuthController      m_auth_controller;
-    std::shared_ptr<middleware::AuthMiddleware> m_auth_middleware;
+    repository::UserRepository           m_user_repository;
+    repository::BlacklistRepository      m_blacklist_repository;
+    std::shared_ptr<modules::AuthModule> m_auth_module;
 };
 
 }  // namespace app

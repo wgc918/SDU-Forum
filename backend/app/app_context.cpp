@@ -1,10 +1,14 @@
 #include "app/app_context.h"
 
+#include <drogon/HttpAppFramework.h>
+
+#include <memory>
+
+#include "app/modules/auth_module.h"
+#include "config/app_config.h"
 #include "conn-pool/ConnectionPool.h"
 #include "log.h"
-#include "middleware/auth_middleware.h"
 #include "middleware/exception_handler.h"
-#include "routes/routes.h"
 
 namespace app
 {
@@ -14,10 +18,8 @@ AppContext::AppContext(const infra::AppConfig& config)
       m_db_pool(&dcp::ConnectionPool::instance(dcp::DatabaseType::MySQL)),
       m_user_repository(*m_db_pool, config.auth().account_table),
       m_blacklist_repository(*m_db_pool, config.auth().blacklist_table),
-      m_auth_service(m_user_repository, m_blacklist_repository, config.jwt()),
-      m_auth_controller(m_auth_service),
-      m_auth_middleware(std::make_shared<middleware::AuthMiddleware>(config.jwt().access_secret,
-                                                                     config.jwt().issuer))
+      m_auth_module(std::make_shared<modules::AuthModule>(m_config.jwt(), m_user_repository,
+                                                          m_blacklist_repository))
 {
 }
 
@@ -48,10 +50,15 @@ void AppContext::init_infrastructure()
 
 void AppContext::register_routes()
 {
-    middleware::install_exception_handler();
-    drogon::app().registerMiddleware(m_auth_middleware);
-    routes::register_auth_routes(drogon::app(), m_auth_controller);
+    m_auth_module->register_routes(drogon::app());
     LOGI("routes registered");
+}
+
+void AppContext::register_middlewares()
+{
+    middleware::install_exception_handler();
+    m_auth_module->register_middlewares(drogon::app());
+    LOGI("middlewares registered");
 }
 
 }  // namespace app

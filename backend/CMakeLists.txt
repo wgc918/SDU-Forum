@@ -56,11 +56,12 @@ target_link_libraries(sdu_infra PUBLIC
 add_executable(sdu_forum_server
     app/app.cpp
     app/app_context.cpp
+    app/modules/auth_module.cpp
     controllers/auth_controller.cpp
     services/auth_service.cpp
     repositories/user_repository.cpp
     repositories/blacklist_repository.cpp
-    routes/auth_routes.cpp
+    routes/routes.cpp
     middleware/auth_middleware.cpp
 )
 
