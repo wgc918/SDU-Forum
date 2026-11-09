@@ -22,6 +22,9 @@ public:
     void login(const drogon::HttpRequestPtr&                         req,
                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 
+    void signUp(const drogon::HttpRequestPtr&                         req,
+                  std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
 private:
     service::AuthService& m_auth_service;
 };

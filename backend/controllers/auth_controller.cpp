@@ -1,7 +1,11 @@
 #include "controllers/auth_controller.h"
 
+#include <drogon/HttpRequest.h>
+#include <drogon/HttpResponse.h>
 #include <json/json.h>
+#include <json/value.h>
 
+#include <functional>
 #include <string>
 
 #include "common/api_response.h"
@@ -58,13 +62,43 @@ void AuthController::login(const drogon::HttpRequestPtr&                        
     auto result = m_auth_service.login(user_id, password);
 
     Json::Value data;
-    data["user_id"]           = result.user_id;
+    data["public_id"]         = result.public_id;
     data["token_type"]        = "Bearer";
     data["access_token"]      = result.access_token;
     data["access_token_exp"]  = Json::Int64(result.access_token_exp);
     data["refresh_token"]     = result.refresh_token;
     data["refresh_token_exp"] = Json::Int64(result.refresh_token_exp);
 
+    callback(common::data_response(200, data));
+}
+
+void AuthController::signUp(const drogon::HttpRequestPtr&                         req,
+                            std::function<void(const drogon::HttpResponsePtr&)>&& callback)
+{
+    auto json = req->getJsonObject();
+    if (json == nullptr)
+        throw common::AppException(common::ErrorCode::InvalidJson,
+                                   "request body must be a valid JSON object");
+
+    const auto& body = *json;
+    if (!body["user_id"].isString() || !body["password"].isString())
+        throw common::AppException(common::ErrorCode::InvalidParam,
+                                   "user_id and password are required and must be strings");
+
+    const std::string user_id  = trim(body["user_id"].asString());
+    const std::string password = body["password"].asString();
+
+    if (user_id.empty() || password.empty())
+        throw common::AppException(common::ErrorCode::InvalidParam,
+                                   "user_id and password must not be empty");
+    if (user_id.size() > kMaxUserIdLength)
+        throw common::AppException(common::ErrorCode::InvalidParam, "user_id is too long");
+    if (password.size() > kMaxPasswordLength)
+        throw common::AppException(common::ErrorCode::InvalidParam, "password is too long");
+
+    bool        state = m_auth_service.signUp(user_id, password);
+    Json::Value data;
+    data["state"] = state;
     callback(common::data_response(200, data));
 }
 

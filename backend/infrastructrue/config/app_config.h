@@ -48,7 +48,7 @@ struct JwtConfig
 struct AuthConfig
 {
     std::string account_table   = "account";
-    std::string blacklist_table = "account_blacklist";
+    std::string blacklist_table = "blacklist";
 };
 
 /// 进程级配置，启动时从 INI 文件加载一次

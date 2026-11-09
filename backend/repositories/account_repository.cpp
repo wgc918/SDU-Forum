@@ -2,6 +2,7 @@
 
 #include <jdbc/cppconn/exception.h>
 
+#include <cstdlib>
 #include <memory>
 #include <utility>
 
@@ -27,7 +28,7 @@ std::optional<AccountRecord> AccountRepository::find_account_by_user_id(const st
 
     try
     {
-        conn->prepare_statement("SELECT id, user_id, password_hash, salt, iterations FROM " +
+        conn->prepare_statement("SELECT id, public_id, password_hash, salt, iterations FROM " +
                                 m_account_table + " WHERE user_id = ?");
         conn->set_string(1, user_id);
 
@@ -47,6 +48,38 @@ std::optional<AccountRecord> AccountRepository::find_account_by_user_id(const st
     {
         LOGE("query account failed: %s", e.what());
         throw common::AppException(common::ErrorCode::DatabaseError, "database query failed");
+    }
+}
+
+bool AccountRepository::add_account_by_user_id(const std::string&   user_id,
+                                               const AccountRecord& account)
+{
+    auto conn = m_pool.get_connection();
+    if (!conn)
+        throw common::AppException(common::ErrorCode::DatabaseError,
+                                   "database connection unavailable");
+    try
+    {
+        // 查重逻辑交由业务层负责
+
+        conn->prepare_statement("INSERT INTO " + m_account_table +
+                                " (public_id,user_id,password_hash,salt,iterations) "
+                                "VALUES(?,?,?,?,?)");
+        conn->set_string(1, account.public_id);
+        conn->set_string(2, user_id);
+        conn->set_string(3, account.password_hash);
+        conn->set_string(4, account.salt);
+        conn->set_int(5, account.iterations);
+
+        int rt = conn->execute_update();
+        if (rt == 0)
+            return false;
+        return true;
+    }
+    catch (const sql::SQLException& e)
+    {
+        LOGE("update account failed: %s", e.what());
+        throw common::AppException(common::ErrorCode::DatabaseError, "database update failed");
     }
 }
 

@@ -21,6 +21,8 @@ struct AccountRecord
     int         iterations;
 };
 
+
+
 /// account 表只读访问：登录流程只需要凭据字段
 class AccountRepository
 {
@@ -29,6 +31,9 @@ public:
 
     /// @throws common::AppException 数据库不可用
     std::optional<AccountRecord> find_account_by_user_id(const std::string& user_id);
+
+    /// @throws common::AppException 数据库不可用
+    bool add_account_by_user_id(const std::string& user_id, const AccountRecord& account);
 
 private:
     dcp::ConnectionPool& m_pool;

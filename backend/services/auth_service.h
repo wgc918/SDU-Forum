@@ -21,7 +21,7 @@ namespace service
 
 struct LoginResult
 {
-    std::string user_id;
+    std::string public_id;
     std::string access_token;
     int64_t     access_token_exp = 0;
     std::string refresh_token;
@@ -38,9 +38,12 @@ public:
     /// @throws common::AppException
     LoginResult login(const std::string& user_id, const std::string& password);
 
+    /// @throws common::AppException
+    bool signUp(const std::string& user_id, const std::string& passward);
+
 private:
-    repository::AccountRepository&   m_account;
-    repository::BlacklistRepository& m_blacklist;
+    repository::AccountRepository&   m_account_repo;
+    repository::BlacklistRepository& m_blacklist_repo;
     infra::TokenSigner               m_access_signer;
     infra::TokenSigner               m_refresh_signer;
     int64_t                          m_access_ttl_seconds;
