@@ -8,7 +8,7 @@
 namespace repository
 {
 class BlacklistRepository;
-class UserRepository;
+class AccountRepository;
 }  // namespace repository
 
 namespace infra
@@ -32,14 +32,14 @@ struct LoginResult
 class AuthService
 {
 public:
-    AuthService(repository::UserRepository& users, repository::BlacklistRepository& blacklist,
+    AuthService(repository::AccountRepository& account, repository::BlacklistRepository& blacklist,
                 const infra::JwtConfig& jwt_config);
 
     /// @throws common::AppException
     LoginResult login(const std::string& user_id, const std::string& password);
 
 private:
-    repository::UserRepository&      m_users;
+    repository::AccountRepository&   m_account;
     repository::BlacklistRepository& m_blacklist;
     infra::TokenSigner               m_access_signer;
     infra::TokenSigner               m_refresh_signer;

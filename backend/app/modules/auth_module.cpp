@@ -3,14 +3,14 @@
 #include <memory>
 
 #include "config/app_config.h"
+#include "repositories/account_repository.h"
 #include "repositories/blacklist_repository.h"
-#include "repositories/user_repository.h"
 #include "routes/routes.h"
 
 namespace app::modules
 {
 
-AuthModule::AuthModule(const infra::JwtConfig& config, repository::UserRepository& user_repo,
+AuthModule::AuthModule(const infra::JwtConfig& config, repository::AccountRepository& user_repo,
                        repository::BlacklistRepository& blacklist_repo)
     : m_service(user_repo, blacklist_repo, config),
       m_controller(m_service),

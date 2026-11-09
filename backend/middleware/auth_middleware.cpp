@@ -85,11 +85,11 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
         return;
     }
 
-    req->attributes()->insert(kUserIdAttribute, payload->user_id);
+    req->attributes()->insert(kUserIdAttribute, payload->public_id);
     next_cb(std::move(mcb));
 }
 
-std::string current_user_id(const drogon::HttpRequestPtr& req)
+std::string current_public_id(const drogon::HttpRequestPtr& req)
 {
     return req->attributes()->get<std::string>(kUserIdAttribute);
 }

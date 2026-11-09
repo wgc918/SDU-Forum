@@ -15,7 +15,7 @@ struct SignedToken
 
 struct TokenPayload
 {
-    std::string user_id;
+    std::string public_id;
     std::string issuer;
     int64_t     issued_at  = 0;
     int64_t     expires_at = 0;
@@ -27,7 +27,7 @@ class TokenSigner
 public:
     TokenSigner(std::string secret, std::string issuer);
 
-    SignedToken sign(const std::string& user_id, int64_t ttl_seconds) const;
+    SignedToken sign(const std::string& public_id, int64_t ttl_seconds) const;
 
     /// 校验签名、issuer 与有效期；任何一项不通过都返回 std::nullopt
     std::optional<TokenPayload> verify(const std::string& token) const;

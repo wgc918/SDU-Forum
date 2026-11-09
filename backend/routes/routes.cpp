@@ -25,7 +25,7 @@ void register_auth_routes(drogon::HttpAppFramework& app, controller::AuthControl
                            std::function<void(const drogon::HttpResponsePtr&)>&& callback)
                         {
                             Json::Value data;
-                            data["user_id"] = middleware::current_user_id(req);
+                            data["public_id"] = middleware::current_public_id(req);
                             callback(common::data_response(200, data));
                         },
                         {drogon::Get, middleware::AuthMiddleware::classTypeName()});

@@ -13,10 +13,10 @@
 namespace service
 {
 
-AuthService::AuthService(repository::UserRepository&      users,
+AuthService::AuthService(repository::AccountRepository&   account,
                          repository::BlacklistRepository& blacklist,
                          const infra::JwtConfig&          jwt_config)
-    : m_users(users),
+    : m_account(account),
       m_blacklist(blacklist),
       m_access_signer(jwt_config.access_secret, jwt_config.issuer),
       m_refresh_signer(jwt_config.refresh_secret, jwt_config.issuer),
@@ -39,7 +39,7 @@ LoginResult AuthService::login(const std::string& user_id, const std::string& pa
         throw common::AppException(common::ErrorCode::AccountBanned, "account is banned", details);
     }
 
-    auto account = m_users.find_account_by_user_id(user_id);
+    auto account = m_account.find_account_by_user_id(user_id);
 
     // 账号不存在与密码错误返回同一结果，避免泄露账号是否存在
     bool credentials_valid =

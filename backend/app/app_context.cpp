@@ -16,9 +16,9 @@ namespace app
 AppContext::AppContext(const infra::AppConfig& config)
     : m_config(config),
       m_db_pool(&dcp::ConnectionPool::instance(dcp::DatabaseType::MySQL)),
-      m_user_repository(*m_db_pool, config.auth().account_table),
+      m_account_repository(*m_db_pool, config.auth().account_table),
       m_blacklist_repository(*m_db_pool, config.auth().blacklist_table),
-      m_auth_module(std::make_shared<modules::AuthModule>(m_config.jwt(), m_user_repository,
+      m_auth_module(std::make_shared<modules::AuthModule>(m_config.jwt(), m_account_repository,
                                                           m_blacklist_repository))
 {
 }

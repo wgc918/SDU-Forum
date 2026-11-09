@@ -59,7 +59,7 @@ add_executable(sdu_forum_server
     app/modules/auth_module.cpp
     controllers/auth_controller.cpp
     services/auth_service.cpp
-    repositories/user_repository.cpp
+    repositories/account_repository.cpp
     repositories/blacklist_repository.cpp
     routes/routes.cpp
     middleware/auth_middleware.cpp

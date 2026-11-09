@@ -11,8 +11,8 @@
 namespace middleware
 {
 
-/// 鉴权通过后注入请求属性的 key，可通过 current_user_id() 读取
-inline constexpr char kUserIdAttribute[] = "user_id";
+/// 鉴权通过后注入请求属性的 key，可通过 current_public_id() 读取
+inline constexpr char kUserIdAttribute[] = "public_id";
 
 /**
  * @brief JWT 鉴权中间件（Drogon 版本）
@@ -33,6 +33,6 @@ private:
 };
 
 /// 读取 AuthMiddleware 注入的 user_id；未鉴权时返回空字符串
-std::string current_user_id(const drogon::HttpRequestPtr& req);
+std::string current_public_id(const drogon::HttpRequestPtr& req);
 
 }  // namespace middleware

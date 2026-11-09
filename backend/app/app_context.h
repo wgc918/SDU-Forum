@@ -4,8 +4,8 @@
 
 #include "config/app_config.h"
 #include "modules/auth_module.h"
+#include "repositories/account_repository.h"
 #include "repositories/blacklist_repository.h"
-#include "repositories/user_repository.h"
 #include "services/auth_service.h"
 
 namespace dcp
@@ -44,7 +44,7 @@ private:
     const infra::AppConfig& m_config;
     dcp::ConnectionPool*    m_db_pool;
 
-    repository::UserRepository           m_user_repository;
+    repository::AccountRepository        m_account_repository;
     repository::BlacklistRepository      m_blacklist_repository;
     std::shared_ptr<modules::AuthModule> m_auth_module;
 };

@@ -122,7 +122,7 @@ TokenSigner::TokenSigner(std::string secret, std::string issuer)
 {
 }
 
-SignedToken TokenSigner::sign(const std::string& user_id, int64_t ttl_seconds) const
+SignedToken TokenSigner::sign(const std::string& public_id, int64_t ttl_seconds) const
 {
     Json::Value header;
     header["alg"] = kAlgorithm;
@@ -132,10 +132,10 @@ SignedToken TokenSigner::sign(const std::string& user_id, int64_t ttl_seconds) c
     const int64_t expires = now + ttl_seconds;
 
     Json::Value payload;
-    payload["iss"]     = m_issuer;
-    payload["iat"]     = Json::Int64(now);
-    payload["exp"]     = Json::Int64(expires);
-    payload["user_id"] = user_id;
+    payload["iss"]       = m_issuer;
+    payload["iat"]       = Json::Int64(now);
+    payload["exp"]       = Json::Int64(expires);
+    payload["public_id"] = public_id;
 
     std::string unsigned_token =
         base64_url_encode(compact_json(header)) + "." + base64_url_encode(compact_json(payload));
@@ -202,7 +202,7 @@ std::optional<TokenPayload> TokenSigner::verify(const std::string& token) const
         return std::nullopt;
 
     TokenPayload result;
-    result.user_id    = payload["user_id"].asString();
+    result.public_id  = payload["public_id"].asString();
     result.issuer     = payload["iss"].asString();
     result.expires_at = expires_at;
     result.issued_at  = is_numeric(payload["iat"]) ? payload["iat"].asInt64() : 0;

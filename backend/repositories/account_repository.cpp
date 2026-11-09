@@ -1,4 +1,4 @@
-#include "repositories/user_repository.h"
+#include "repositories/account_repository.h"
 
 #include <jdbc/cppconn/exception.h>
 
@@ -13,12 +13,12 @@
 namespace repository
 {
 
-UserRepository::UserRepository(dcp::ConnectionPool& pool, std::string account_table)
+AccountRepository::AccountRepository(dcp::ConnectionPool& pool, std::string account_table)
     : m_pool(pool), m_account_table(std::move(account_table))
 {
 }
 
-std::optional<AccountRecord> UserRepository::find_account_by_user_id(const std::string& user_id)
+std::optional<AccountRecord> AccountRepository::find_account_by_user_id(const std::string& user_id)
 {
     auto conn = m_pool.get_connection();
     if (!conn)
@@ -36,8 +36,8 @@ std::optional<AccountRecord> UserRepository::find_account_by_user_id(const std::
             return std::nullopt;
 
         AccountRecord record;
-        record.id            = result->get_int64("id");
-        record.user_id       = result->get_string("user_id");
+        record.id            = result->get_uint64("id");
+        record.public_id     = result->get_string("public_id");
         record.password_hash = result->get_string("password_hash");
         record.salt          = result->get_string("salt");
         record.iterations    = result->get_int("iterations");
