@@ -6,6 +6,7 @@
 #include <json/value.h>
 
 #include <functional>
+#include <iostream>
 #include <string>
 
 #include "common/api_response.h"
@@ -44,6 +45,10 @@ void AuthController::login(const drogon::HttpRequestPtr&                        
                                    "request body must be a valid JSON object");
 
     const auto& body = *json;
+    if (!body.isMember("user_id"))
+        throw common::AppException(common::ErrorCode::InvalidJson, "missing param: user_id");
+    if (!body.isMember("password"))
+        throw common::AppException(common::ErrorCode::InvalidJson, "missing param: password");
     if (!body["user_id"].isString() || !body["password"].isString())
         throw common::AppException(common::ErrorCode::InvalidParam,
                                    "user_id and password are required and must be strings");
@@ -81,6 +86,10 @@ void AuthController::signUp(const drogon::HttpRequestPtr&                       
                                    "request body must be a valid JSON object");
 
     const auto& body = *json;
+    if (!body.isMember("user_id"))
+        throw common::AppException(common::ErrorCode::InvalidJson, "missing param: user_id");
+    if (!body.isMember("password"))
+        throw common::AppException(common::ErrorCode::InvalidJson, "missing param: password");
     if (!body["user_id"].isString() || !body["password"].isString())
         throw common::AppException(common::ErrorCode::InvalidParam,
                                    "user_id and password are required and must be strings");
