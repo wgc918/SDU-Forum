@@ -78,7 +78,7 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
 
     auto payload = m_signer.verify(token);
     if (!payload)
-    {
+    {  // 后续优化可以考虑新增error_code详细区分验证失败的原因，便于前端根据超时原因更新access_token
         LOGW("invalid or expired access token: %s", req->path().c_str());
         mcb(common::error_response(common::ErrorCode::Unauthorized,
                                    "invalid or expired access token"));

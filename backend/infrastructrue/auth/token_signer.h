@@ -26,7 +26,7 @@ class TokenSigner
 {
 public:
     TokenSigner(std::string secret, std::string issuer);
-
+    // 后续引入后台管理api时，要在token中添加role进行区分权限
     SignedToken sign(const std::string& public_id, int64_t ttl_seconds) const;
 
     /// 校验签名、issuer 与有效期；任何一项不通过都返回 std::nullopt

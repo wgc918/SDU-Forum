@@ -28,6 +28,10 @@ add_library(sdu_infra STATIC
     ${INFRA_ROOT}/database-connection-pool/src/MySQLHealthChecker.cpp
     ${INFRA_ROOT}/database-connection-pool/src/MySQLResultSet.cpp
     ${INFRA_ROOT}/database-connection-pool/src/pooledConnGuard.cpp
+    ${INFRA_ROOT}/redis-connection-pool/src/RedisConnectionFactory.cpp
+    ${INFRA_ROOT}/redis-connection-pool/src/RedisConnectionPool.cpp
+    ${INFRA_ROOT}/redis-connection-pool/src/RedisConnGuard.cpp
+    ${INFRA_ROOT}/redis-connection-pool/src/RedisHealthChecker.cpp
     ${INFRA_ROOT}/ini/src/ini.cpp
     ${INFRA_ROOT}/ini/src/value.cpp
     ${INFRA_ROOT}/log/src/log.cpp
@@ -40,6 +44,7 @@ target_include_directories(sdu_infra PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${INFRA_ROOT}
     ${INFRA_ROOT}/database-connection-pool/include
+    ${INFRA_ROOT}/redis-connection-pool/include
     ${INFRA_ROOT}/ini/include
     ${INFRA_ROOT}/log/include
 )
@@ -61,6 +66,7 @@ add_executable(sdu_forum_server
     services/auth_service.cpp
     repositories/account_repository.cpp
     repositories/blacklist_repository.cpp
+    repositories/token_repository.cpp
     routes/routes.cpp
     middleware/auth_middleware.cpp
 )

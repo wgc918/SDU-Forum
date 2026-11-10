@@ -133,7 +133,7 @@ bool AuthService::signUp(const std::string& user_id, const std::string& passward
         throw common::AppException(common::ErrorCode::InvalidParam, "user_id is existed");
     }
 
-    bool success = m_account_repo.add_account_by_user_id(user_id, account);
+    bool success = m_account_repo.insert_account_by_user_id(user_id, account);
     if (success)
         LOGI("sign up succeed: user_id=%s", user_id.c_str());
     else

@@ -41,6 +41,15 @@ public:
     /// @throws common::AppException
     bool signUp(const std::string& user_id, const std::string& passward);
 
+    /// @throws common::AppException
+    bool logout();
+
+    /// @throws common::AppException
+    /// @param refresh_token 是否更新 refresh_token
+    LoginResult refresh_token(bool refresh_token);
+
+    bool logoff();
+
 private:
     repository::AccountRepository&   m_account_repo;
     repository::BlacklistRepository& m_blacklist_repo;

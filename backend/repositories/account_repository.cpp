@@ -51,7 +51,7 @@ std::optional<AccountRecord> AccountRepository::find_account_by_user_id(const st
     }
 }
 
-bool AccountRepository::add_account_by_user_id(const std::string&   user_id,
+bool AccountRepository::insert_account_by_user_id(const std::string&   user_id,
                                                const AccountRecord& account)
 {
     auto conn = m_pool.get_connection();

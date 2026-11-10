@@ -23,7 +23,18 @@ public:
                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 
     void signUp(const drogon::HttpRequestPtr&                         req,
-                  std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
+    void logout(const drogon::HttpRequestPtr&                         req,
+                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
+    void refresh_token(const drogon::HttpRequestPtr&                         req,
+                       std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
+    void logoff(const drogon::HttpRequestPtr&                         req,
+                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
+    // 多设备管理
 
 private:
     service::AuthService& m_auth_service;
