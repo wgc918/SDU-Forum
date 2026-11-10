@@ -192,7 +192,7 @@ std::optional<TokenPayload> TokenSigner::verify(const std::string& token) const
         return std::nullopt;
     if (!payload["iss"].isString() || payload["iss"].asString() != m_issuer)
         return std::nullopt;
-    if (!payload["user_id"].isString() || payload["user_id"].asString().empty())
+    if (!payload["public_id"].isString() || payload["public_id"].asString().empty())
         return std::nullopt;
     if (!is_numeric(payload["exp"]))
         return std::nullopt;
