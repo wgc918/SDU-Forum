@@ -53,6 +53,8 @@ target_link_libraries(sdu_infra PUBLIC
     mysqlcppconn
     OpenSSL::Crypto
     Threads::Threads
+    redis++
+    hiredis
 )
 
 # ---------------------------------------------------------------------------
@@ -69,6 +71,7 @@ add_executable(sdu_forum_server
     repositories/token_repository.cpp
     routes/routes.cpp
     middleware/auth_middleware.cpp
+    utils/utils.cpp
 )
 
 target_link_libraries(sdu_forum_server PRIVATE

@@ -36,7 +36,16 @@ struct DatabaseConfig
     int         op_num             = 4;
 };
 
+struct RedisConfig
+{
+    std::string host = "127.0.0.1";
+    uint16_t    port = 6379;
+    std::string password;  // 密码（默认为空，无密码）
+    int         db = 0;
+};
+
 struct JwtConfig
+
 {
     std::string issuer;
     std::string access_secret;
@@ -47,8 +56,12 @@ struct JwtConfig
 
 struct AuthConfig
 {
-    std::string account_table   = "account";
-    std::string blacklist_table = "blacklist";
+    std::string account_table       = "account";
+    std::string blacklist_table     = "blacklist";
+    std::string refresh_token_table = "refresh_tokens";
+    std::string refresh_token_key   = "refresh_key";
+    std::string access_token_key    = "access_key";
+    std::string hash_secret         = "dfacadgafeqwfqvab";
 };
 
 /// 进程级配置，启动时从 INI 文件加载一次

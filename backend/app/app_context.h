@@ -4,6 +4,7 @@
 
 #include "config/app_config.h"
 #include "modules/auth_module.h"
+#include "redis-pool/RedisConnectionPool.h"
 #include "repositories/account_repository.h"
 #include "repositories/blacklist_repository.h"
 #include "services/auth_service.h"
@@ -41,11 +42,10 @@ public:
     void register_middlewares();
 
 private:
-    const infra::AppConfig& m_config;
-    dcp::ConnectionPool*    m_db_pool;
+    const infra::AppConfig&   m_config;
+    dcp::ConnectionPool*      m_db_pool;
+    rcp::RedisConnectionPool* m_redis_pool;
 
-    repository::AccountRepository        m_account_repository;
-    repository::BlacklistRepository      m_blacklist_repository;
     std::shared_ptr<modules::AuthModule> m_auth_module;
 };
 

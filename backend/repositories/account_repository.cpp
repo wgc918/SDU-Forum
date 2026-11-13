@@ -52,7 +52,7 @@ std::optional<AccountRecord> AccountRepository::find_account_by_user_id(const st
 }
 
 bool AccountRepository::insert_account_by_user_id(const std::string&   user_id,
-                                               const AccountRecord& account)
+                                                  const AccountRecord& account)
 {
     auto conn = m_pool.get_connection();
     if (!conn)
@@ -80,6 +80,30 @@ bool AccountRepository::insert_account_by_user_id(const std::string&   user_id,
     {
         LOGE("update account failed: %s", e.what());
         throw common::AppException(common::ErrorCode::DatabaseError, "database update failed");
+    }
+}
+
+bool AccountRepository::delete_account_by_public_id(const std::string& public_id)
+{
+    auto conn = m_pool.get_connection();
+    if (!conn)
+        throw common::AppException(common::ErrorCode::DatabaseError,
+                                   "database connection unavailable");
+
+    try
+    {
+        conn->prepare_statement("DELETE FROM " + m_account_table + " WHERE public_id=?");
+        conn->set_string(1, public_id);
+        int rows = conn->execute_update();
+        if (rows > 0)
+            return true;
+        else
+            return false;
+    }
+    catch (const sql::SQLException& e)
+    {
+        LOGW("delete account failed:%s", e.what());
+        throw common::AppException(common::ErrorCode::DatabaseError, "database delete failed");
     }
 }
 

@@ -20,6 +20,7 @@ enum class ErrorCode
     Conflict,
     DatabaseError,
     InternalError,
+    RedisError,
 };
 
 inline const char* error_code_name(ErrorCode code) noexcept
@@ -44,6 +45,8 @@ inline const char* error_code_name(ErrorCode code) noexcept
             return "DB_ERROR";
         case ErrorCode::InternalError:
             return "INTERNAL_ERROR";
+        case ErrorCode::RedisError:
+            return " REDISE_RROR";
     }
     return "INTERNAL_ERROR";
 }
@@ -66,6 +69,7 @@ inline int http_status(ErrorCode code) noexcept
             return 409;
         case ErrorCode::DatabaseError:
         case ErrorCode::InternalError:
+        case ErrorCode::RedisError:
             return 500;
     }
     return 500;

@@ -9,6 +9,8 @@
 #include "conn-pool/ConnectionPool.h"
 #include "log.h"
 #include "middleware/exception_handler.h"
+#include "redis-pool/RedisConnectionFactory.h"
+#include "redis-pool/RedisConnectionPool.h"
 
 namespace app
 {
@@ -16,10 +18,8 @@ namespace app
 AppContext::AppContext(const infra::AppConfig& config)
     : m_config(config),
       m_db_pool(&dcp::ConnectionPool::instance(dcp::DatabaseType::MySQL)),
-      m_account_repository(*m_db_pool, config.auth().account_table),
-      m_blacklist_repository(*m_db_pool, config.auth().blacklist_table),
-      m_auth_module(std::make_shared<modules::AuthModule>(m_config.jwt(), m_account_repository,
-                                                          m_blacklist_repository))
+      m_redis_pool(&rcp::RedisConnectionPool::instance()),
+      m_auth_module(std::make_shared<modules::AuthModule>(m_config, m_db_pool, m_redis_pool))
 {
 }
 
@@ -45,6 +45,11 @@ void AppContext::init_infrastructure()
 
     LOGI("database connection pool initialized: %s:%d/%s", db.host.c_str(), db.port,
          db.dbname.c_str());
+
+    rcp::RedisConnectionConfig redis_config;
+    m_redis_pool->init(redis_config);
+    LOGI("redis connection pool initialized: %s:%d/%d", redis_config.host.c_str(),
+         redis_config.port, redis_config.db);
 }
 
 void AppContext::register_routes()

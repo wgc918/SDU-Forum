@@ -4,6 +4,8 @@
 #include <string>
 
 #include "auth/token_signer.h"
+#include "config/app_config.h"
+#include "repositories/token_repository.h"
 
 namespace repository
 {
@@ -33,7 +35,8 @@ class AuthService
 {
 public:
     AuthService(repository::AccountRepository& account, repository::BlacklistRepository& blacklist,
-                const infra::JwtConfig& jwt_config);
+                repository::TokenRepository& token, const infra::JwtConfig& jwt_config,
+                const infra::AuthConfig& auth_config);
 
     /// @throws common::AppException
     LoginResult login(const std::string& user_id, const std::string& password);
@@ -42,21 +45,25 @@ public:
     bool signUp(const std::string& user_id, const std::string& passward);
 
     /// @throws common::AppException
-    bool logout();
+    bool logout(const std::string& refresh_token, const std::string access_token);
 
     /// @throws common::AppException
-    /// @param refresh_token 是否更新 refresh_token
-    LoginResult refresh_token(bool refresh_token);
+    /// @param refreshing 是否更新refresh_token
+    LoginResult refresh_token(const std::string& refresh_token, const std::string& access_token,
+                              bool refreshing);
 
-    bool logoff();
+    bool logoff(const std::string& public_id, const std::string& refresh_token,
+                const std::string access_token);
 
 private:
     repository::AccountRepository&   m_account_repo;
     repository::BlacklistRepository& m_blacklist_repo;
+    repository::TokenRepository&     m_token_repo;
     infra::TokenSigner               m_access_signer;
     infra::TokenSigner               m_refresh_signer;
     int64_t                          m_access_ttl_seconds;
     int64_t                          m_refresh_ttl_seconds;
+    const std::string                m_hash_secret;
 };
 
 }  // namespace service

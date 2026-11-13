@@ -5,25 +5,31 @@
 
 #include <utility>
 
+#include "auth/token_signer.h"
 #include "common/errors.h"
 #include "config/app_config.h"
 #include "log.h"
 #include "repositories/account_repository.h"
 #include "repositories/repository.h"
+#include "repositories/token_repository.h"
 #include "security/password_hasher.h"
+#include "utils/utils.h"
 
 namespace service
 {
 
 AuthService::AuthService(repository::AccountRepository&   account,
                          repository::BlacklistRepository& blacklist,
-                         const infra::JwtConfig&          jwt_config)
+                         repository::TokenRepository& token, const infra::JwtConfig& jwt_config,
+                         const infra::AuthConfig& auth_config)
     : m_account_repo(account),
       m_blacklist_repo(blacklist),
+      m_token_repo(token),
       m_access_signer(jwt_config.access_secret, jwt_config.issuer),
       m_refresh_signer(jwt_config.refresh_secret, jwt_config.issuer),
       m_access_ttl_seconds(static_cast<int64_t>(jwt_config.access_token_minutes) * 60),
-      m_refresh_ttl_seconds(static_cast<int64_t>(jwt_config.refresh_token_hours) * 3600)
+      m_refresh_ttl_seconds(static_cast<int64_t>(jwt_config.refresh_token_hours) * 3600),
+      m_hash_secret(auth_config.hash_secret)
 {
 }
 
@@ -141,5 +147,93 @@ bool AuthService::signUp(const std::string& user_id, const std::string& passward
         LOGW("sign up failed: user_id=%s ,update rows=0", user_id.c_str());
     }
     return success;
+}
+
+bool AuthService::logout(const std::string& refresh_token, const std::string access_token)
+{
+    auto token = m_token_repo.find_refresh_token(utils::hmac_sha256(m_hash_secret, refresh_token));
+    if (token)
+        throw common::AppException(common::ErrorCode::Unauthorized, "old refresh token");
+    auto payload = m_refresh_signer.verify(refresh_token);
+    if (!payload)
+        throw common::AppException(common::ErrorCode::Unauthorized,
+                                   "invalid or expired refresh token");
+
+    repository::TokenRecord refresh_token_recd;
+    repository::TokenRecord access_token_recd;
+    refresh_token_recd.token_hash = utils::hmac_sha256(m_hash_secret, refresh_token);
+    refresh_token_recd.exp_at     = payload->expires_at;
+    access_token_recd.token_hash  = utils::hmac_sha256(m_hash_secret, access_token);
+    access_token_recd.exp_at =
+        0;  // access_token 不存数据库供审计，仅缓存供吊销判断，缓存ttl默认为原ttl
+
+    return m_token_repo.insert_refresh_token(refresh_token_recd) &&
+           m_token_repo.insert_access_token(access_token_recd);
+}
+
+LoginResult AuthService::refresh_token(const std::string& refresh_token,
+                                       const std::string& access_token, bool refreshing)
+{
+    // 先判断 refresh_token 是否已被吊销
+    auto token = m_token_repo.find_refresh_token(utils::hmac_sha256(m_hash_secret, refresh_token));
+    if (token)
+        throw common::AppException(common::ErrorCode::Unauthorized, "old refresh token");
+
+    auto payload = m_refresh_signer.verify(refresh_token);
+    if (!payload)
+        throw common::AppException(common::ErrorCode::Unauthorized,
+                                   "invalid or expired refresh token");
+
+    LoginResult result;
+    if (refreshing)
+    {
+        infra::SignedToken new_refresh_token =
+            m_refresh_signer.sign(payload->public_id, m_refresh_ttl_seconds);
+        repository::TokenRecord refresh_token_record;
+        refresh_token_record.token_hash = utils::hmac_sha256(m_hash_secret, refresh_token);
+        refresh_token_record.exp_at     = new_refresh_token.expires_at;
+        // 吊销旧token
+        m_token_repo.insert_refresh_token(refresh_token_record);
+
+        result.public_id         = payload->public_id;
+        result.refresh_token     = new_refresh_token.value;
+        result.refresh_token_exp = new_refresh_token.expires_at;
+    }
+
+    infra::SignedToken new_access_token =
+        m_access_signer.sign(payload->public_id, m_access_ttl_seconds);
+    repository::TokenRecord access_token_record;
+    access_token_record.token_hash = utils::hmac_sha256(m_hash_secret, access_token);
+    access_token_record.exp_at     = new_access_token.expires_at;
+    // 吊销旧token
+    m_token_repo.insert_access_token(access_token_record);
+
+    result.access_token     = new_access_token.value;
+    result.access_token_exp = new_access_token.expires_at;
+    return result;
+}
+
+bool AuthService::logoff(const std::string& public_id, const std::string& refresh_token,
+                         const std::string access_token)
+{
+    auto token = m_token_repo.find_refresh_token(utils::hmac_sha256(m_hash_secret, refresh_token));
+    if (token)
+        throw common::AppException(common::ErrorCode::Unauthorized, "old refresh token");
+
+    auto payload = m_refresh_signer.verify(refresh_token);
+    if (!payload)
+        throw common::AppException(common::ErrorCode::Unauthorized,
+                                   "invalid or expired refresh token");
+
+    repository::TokenRecord refresh_token_recd;
+    repository::TokenRecord access_token_recd;
+    refresh_token_recd.token_hash = utils::hmac_sha256(m_hash_secret, refresh_token);
+    refresh_token_recd.exp_at     = payload->expires_at;
+    access_token_recd.token_hash  = utils::hmac_sha256(m_hash_secret, access_token);
+    access_token_recd.exp_at      = 0;
+
+    return m_account_repo.delete_account_by_public_id(public_id) &&
+           m_token_repo.insert_refresh_token(refresh_token_recd) &&
+           m_token_repo.insert_access_token(access_token_recd);
 }
 }  // namespace service
