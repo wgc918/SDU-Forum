@@ -3,8 +3,13 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 
+#include <cctype>
+#include <cstddef>
+#include <cstdio>
 #include <ctime>
 #include <optional>
+
+#include "codec/base64url.h"
 
 namespace utils
 {
@@ -30,8 +35,7 @@ bool has_bearer_prefix(const std::string& value)
 
 }  // namespace
 
-std::optional<std::string> parse_bearer(const std::string& authorization,
-                                        BearerError*       error)
+std::optional<std::string> parse_bearer(const std::string& authorization, BearerError* error)
 {
     auto fail = [error](BearerError e) -> std::optional<std::string>
     {
@@ -77,34 +81,7 @@ std::string trim(const std::string& value)
     return value.substr(start, end - start + 1);
 }
 
-std::string base64_url_encode(const std::string& input)
-{
-    std::string out;
-    out.resize(static_cast<std::size_t>(4 * ((input.size() + 2) / 3)) + 1);
-
-    int written = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(out.data()),
-                                  reinterpret_cast<const unsigned char*>(input.data()),
-                                  static_cast<int>(input.size()));
-    if (written < 0)
-        return "";
-
-    out.resize(static_cast<std::size_t>(written));
-
-    for (char& ch : out)
-    {
-        if (ch == '+')
-            ch = '-';
-        else if (ch == '/')
-            ch = '_';
-    }
-
-    while (!out.empty() && out.back() == '=')
-        out.pop_back();
-
-    return out;
-}
-
-std::string hmac_sha256(const std::string& secret, const std::string& data)
+std::string hmac_sha256_base64url(const std::string& secret, const std::string& data)
 {
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int  digest_len = 0;
@@ -116,7 +93,11 @@ std::string hmac_sha256(const std::string& secret, const std::string& data)
         return "";
     }
 
-    return base64_url_encode(std::string(reinterpret_cast<char*>(digest), digest_len));
+    std::string encoded;
+    if (!infra::codec::base64_url_encode(std::string(reinterpret_cast<char*>(digest), digest_len),
+                                         encoded))
+        return "";
+    return encoded;
 }
 
 // 默认使用 UTC 时间；如需本地时间，把 gmtime_r 换成 localtime_r

@@ -1,4 +1,5 @@
 #include "auth/token_signer.h"
+#include "codec/base64url.h"
 
 #include <json/json.h>
 #include <openssl/crypto.h>
@@ -21,57 +22,9 @@ constexpr char kAlgorithm[] = "HS256";
 std::string base64_url_encode(const std::string& input)
 {
     std::string out;
-    out.resize(static_cast<std::size_t>(4 * ((input.size() + 2) / 3)) + 1);
-
-    int written = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(out.data()),
-                                  reinterpret_cast<const unsigned char*>(input.data()),
-                                  static_cast<int>(input.size()));
-    if (written < 0)
+    if (!infra::codec::base64_url_encode(input, out))
         throw std::runtime_error("failed to base64 encode jwt segment");
-
-    out.resize(static_cast<std::size_t>(written));
-
-    for (char& ch : out)
-    {
-        if (ch == '+')
-            ch = '-';
-        else if (ch == '/')
-            ch = '_';
-    }
-
-    while (!out.empty() && out.back() == '=')
-        out.pop_back();
-
     return out;
-}
-
-bool base64_url_decode(const std::string& input, std::string& output)
-{
-    std::string base64 = input;
-    for (char& ch : base64)
-    {
-        if (ch == '-')
-            ch = '+';
-        else if (ch == '_')
-            ch = '/';
-    }
-
-    if (base64.size() % 4 == 1)
-        return false;
-
-    std::size_t padding = (4 - base64.size() % 4) % 4;
-    base64.append(padding, '=');
-
-    std::vector<unsigned char> buffer(base64.size() / 4 * 3);
-    int                        written =
-        EVP_DecodeBlock(buffer.data(), reinterpret_cast<const unsigned char*>(base64.data()),
-                        static_cast<int>(base64.size()));
-    if (written < 0 || static_cast<std::size_t>(written) < padding)
-        return false;
-
-    output.assign(reinterpret_cast<char*>(buffer.data()),
-                  static_cast<std::size_t>(written) - padding);
-    return true;
 }
 
 std::string compact_json(const Json::Value& value)
@@ -175,8 +128,8 @@ std::optional<TokenPayload> TokenSigner::verify(const std::string& token) const
 
     std::string header_json;
     std::string payload_json;
-    if (!base64_url_decode(header_segment, header_json) ||
-        !base64_url_decode(payload_segment, payload_json))
+    if (!infra::codec::base64_url_decode(header_segment, header_json) ||
+        !infra::codec::base64_url_decode(payload_segment, payload_json))
     {
         return std::nullopt;
     }
