@@ -63,7 +63,6 @@ private:
     infra::TokenSigner               m_refresh_signer;
     int64_t                          m_access_ttl_seconds;
     int64_t                          m_refresh_ttl_seconds;
-    const std::string                m_hash_secret;
 };
 
 }  // namespace service

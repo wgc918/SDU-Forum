@@ -28,8 +28,7 @@ AuthService::AuthService(repository::AccountRepository&   account,
       m_access_signer(jwt_config.access_secret, jwt_config.issuer),
       m_refresh_signer(jwt_config.refresh_secret, jwt_config.issuer),
       m_access_ttl_seconds(jwt_config.access_token_ttl_seconds()),
-      m_refresh_ttl_seconds(jwt_config.refresh_token_ttl_seconds()),
-      m_hash_secret(auth_config.hash_secret)
+      m_refresh_ttl_seconds(jwt_config.refresh_token_ttl_seconds())
 {
 }
 
@@ -152,7 +151,7 @@ bool AuthService::signUp(const std::string& user_id, const std::string& passward
 bool AuthService::logout(const std::string& refresh_token, const std::string access_token)
 {
     auto token = m_token_repo.find_refresh_token(
-        utils::hmac_sha256_base64url(m_hash_secret, refresh_token));
+        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token));
     if (token)
         throw common::AppException(common::ErrorCode::Unauthorized, "old refresh token");
     auto payload = m_refresh_signer.verify(refresh_token);
@@ -162,9 +161,11 @@ bool AuthService::logout(const std::string& refresh_token, const std::string acc
 
     repository::TokenRecord refresh_token_recd;
     repository::TokenRecord access_token_recd;
-    refresh_token_recd.token_hash = utils::hmac_sha256_base64url(m_hash_secret, refresh_token);
-    refresh_token_recd.exp_at     = payload->expires_at;
-    access_token_recd.token_hash = utils::hmac_sha256_base64url(m_hash_secret, access_token);
+    refresh_token_recd.token_hash =
+        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token);
+    refresh_token_recd.exp_at = payload->expires_at;
+    access_token_recd.token_hash =
+        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), access_token);
     access_token_recd.exp_at =
         0;  // access_token 不存数据库供审计，仅缓存供吊销判断，缓存ttl默认为原ttl
 
@@ -177,7 +178,7 @@ LoginResult AuthService::refresh_token(const std::string& refresh_token,
 {
     // 先判断 refresh_token 是否已被吊销
     auto token = m_token_repo.find_refresh_token(
-        utils::hmac_sha256_base64url(m_hash_secret, refresh_token));
+        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token));
     if (token)
         throw common::AppException(common::ErrorCode::Unauthorized, "old refresh token");
 
@@ -193,8 +194,8 @@ LoginResult AuthService::refresh_token(const std::string& refresh_token,
             m_refresh_signer.sign(payload->public_id, m_refresh_ttl_seconds);
         repository::TokenRecord refresh_token_record;
         refresh_token_record.token_hash =
-            utils::hmac_sha256_base64url(m_hash_secret, refresh_token);
-        refresh_token_record.exp_at     = new_refresh_token.expires_at;
+            utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token);
+        refresh_token_record.exp_at = new_refresh_token.expires_at;
         // 吊销旧token
         m_token_repo.insert_refresh_token(refresh_token_record);
 
@@ -207,8 +208,8 @@ LoginResult AuthService::refresh_token(const std::string& refresh_token,
         m_access_signer.sign(payload->public_id, m_access_ttl_seconds);
     repository::TokenRecord access_token_record;
     access_token_record.token_hash =
-        utils::hmac_sha256_base64url(m_hash_secret, access_token);
-    access_token_record.exp_at     = new_access_token.expires_at;
+        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), access_token);
+    access_token_record.exp_at = new_access_token.expires_at;
     // 吊销旧token
     m_token_repo.insert_access_token(access_token_record);
 
@@ -221,7 +222,7 @@ bool AuthService::logoff(const std::string& public_id, const std::string& refres
                          const std::string access_token)
 {
     auto token = m_token_repo.find_refresh_token(
-        utils::hmac_sha256_base64url(m_hash_secret, refresh_token));
+        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token));
     if (token)
         throw common::AppException(common::ErrorCode::Unauthorized, "old refresh token");
 
@@ -232,10 +233,12 @@ bool AuthService::logoff(const std::string& public_id, const std::string& refres
 
     repository::TokenRecord refresh_token_recd;
     repository::TokenRecord access_token_recd;
-    refresh_token_recd.token_hash = utils::hmac_sha256_base64url(m_hash_secret, refresh_token);
-    refresh_token_recd.exp_at     = payload->expires_at;
-    access_token_recd.token_hash = utils::hmac_sha256_base64url(m_hash_secret, access_token);
-    access_token_recd.exp_at     = 0;
+    refresh_token_recd.token_hash =
+        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token);
+    refresh_token_recd.exp_at = payload->expires_at;
+    access_token_recd.token_hash =
+        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), access_token);
+    access_token_recd.exp_at = 0;
 
     return m_account_repo.delete_account_by_public_id(public_id) &&
            m_token_repo.insert_refresh_token(refresh_token_recd) &&

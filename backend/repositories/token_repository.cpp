@@ -13,14 +13,13 @@
 namespace repository
 {
 TokenRepository::TokenRepository(dcp::ConnectionPool& db_pool, rcp::RedisConnectionPool& redis_pool,
-                                 const std::string& refresh_token_table, int refresh_ttl_s,
-                                 int access_ttl_s)
+                                 const TokenStoreConfig& config)
     : m_db_pool(db_pool),
       m_redis_pool(redis_pool),
-      m_refresh_token_table(refresh_token_table),
-      m_refresh_ttl_s(refresh_ttl_s),
-      m_access_ttl_s(access_ttl_s)
-
+      m_refresh_token_table(config.refresh_token_table),
+      m_hash_secret(config.hash_secret),
+      m_refresh_ttl_s(config.refresh_ttl_s),
+      m_access_ttl_s(config.access_ttl_s)
 {
 }
 
@@ -102,4 +101,10 @@ bool TokenRepository::insert_access_token(const TokenRecord& token)
         throw common::AppException(common::ErrorCode::RedisError, "redis connection unavailable");
     return redis_conn->set(token.token_hash, token.token_hash, m_access_ttl_s);
 }
+
+const std::string& TokenRepository::hash_secret() const noexcept
+{
+    return m_hash_secret;
+}
+
 }  // namespace repository

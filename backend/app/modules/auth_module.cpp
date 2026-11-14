@@ -16,9 +16,10 @@ AuthModule::AuthModule(const infra::AppConfig& config, dcp::ConnectionPool* db_p
                        rcp::RedisConnectionPool* redis_pool)
     : m_account_repository(*db_pool, config.auth().account_table),
       m_blacklist_repository(*db_pool, config.auth().blacklist_table),
-      m_token_repo(*db_pool, *redis_pool, config.auth().refresh_token_table,
-                   config.jwt().refresh_token_ttl_seconds(),
-                   config.jwt().access_token_ttl_seconds()),
+      m_token_repo(
+          *db_pool, *redis_pool,
+          {config.auth().refresh_token_table, config.jwt().hash_secret,
+           config.jwt().refresh_token_ttl_seconds(), config.jwt().access_token_ttl_seconds()}),
       m_service(m_account_repository, m_blacklist_repository, m_token_repo, config.jwt(),
                 config.auth()),
       m_controller(m_service),
