@@ -23,8 +23,10 @@ AuthModule::AuthModule(const infra::AppConfig& config, dcp::ConnectionPool* db_p
       m_service(m_account_repository, m_blacklist_repository, m_token_repo, config.jwt(),
                 config.auth()),
       m_controller(m_service),
-      m_access_middleware(std::make_shared<middleware::AccessAuthMiddleware>(config.jwt())),
-      m_refresh_middleware(std::make_shared<middleware::RefreshAuthMiddleware>(config.jwt()))
+      m_access_middleware(
+          std::make_shared<middleware::AccessAuthMiddleware>(config.jwt(), m_token_repo)),
+      m_refresh_middleware(
+          std::make_shared<middleware::RefreshAuthMiddleware>(config.jwt(), m_token_repo))
 {
 }
 

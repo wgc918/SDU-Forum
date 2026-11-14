@@ -8,6 +8,7 @@
 
 #include "auth/token_signer.h"
 #include "config/app_config.h"
+#include "repositories/token_repository.h"
 
 namespace middleware
 {
@@ -24,22 +25,24 @@ inline constexpr char kUserIdAttribute[] = "public_id";
 class AuthMiddleware
 {
 public:
-    AuthMiddleware(const infra::JwtConfig& config, bool is_access);
+    AuthMiddleware(const infra::JwtConfig& config, repository::TokenRepository& token_repo,
+                   bool is_access);
 
     void invoke(const drogon::HttpRequestPtr& req, drogon::MiddlewareNextCallback&& next_cb,
                 drogon::MiddlewareCallback&& mcb);
 
 private:
-    infra::TokenSigner m_refresh_signer;
-    infra::TokenSigner m_access_signer;
-    bool               m_is_access;  // ture 校验access_token ,否则校验refresh_token
+    infra::TokenSigner          m_refresh_signer;
+    infra::TokenSigner          m_access_signer;
+    repository::TokenRepository m_token_repo;
+    bool                        m_is_access;  // ture 校验access_token ,否则校验refresh_token
 };
 
 class AccessAuthMiddleware : public drogon::HttpMiddleware<AccessAuthMiddleware, false>,
                              public AuthMiddleware
 {
 public:
-    AccessAuthMiddleware(const infra::JwtConfig& config);
+    AccessAuthMiddleware(const infra::JwtConfig& config, repository::TokenRepository& token_repo);
 
     void invoke(const drogon::HttpRequestPtr& req, drogon::MiddlewareNextCallback&& next_cb,
                 drogon::MiddlewareCallback&& mcb) override;
@@ -49,7 +52,7 @@ class RefreshAuthMiddleware : public drogon::HttpMiddleware<RefreshAuthMiddlewar
                               public AuthMiddleware
 {
 public:
-    RefreshAuthMiddleware(const infra::JwtConfig& config);
+    RefreshAuthMiddleware(const infra::JwtConfig& config, repository::TokenRepository& token_repo);
 
     void invoke(const drogon::HttpRequestPtr& req, drogon::MiddlewareNextCallback&& next_cb,
                 drogon::MiddlewareCallback&& mcb) override;
