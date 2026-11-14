@@ -4,9 +4,14 @@
 #include <openssl/hmac.h>
 
 #include <ctime>
+#include <optional>
 
 namespace utils
 {
+namespace
+{
+
+constexpr std::size_t kBearerPrefixLength = 7;  // "Bearer "
 
 bool has_bearer_prefix(const std::string& value)
 {
@@ -21,6 +26,45 @@ bool has_bearer_prefix(const std::string& value)
             return false;
     }
     return true;
+}
+
+}  // namespace
+
+std::optional<std::string> parse_bearer(const std::string& authorization,
+                                        BearerError*       error)
+{
+    auto fail = [error](BearerError e) -> std::optional<std::string>
+    {
+        if (error)
+            *error = e;
+        return std::nullopt;
+    };
+
+    if (authorization.empty())
+        return fail(BearerError::Missing);
+    if (!has_bearer_prefix(authorization))
+        return fail(BearerError::BadScheme);
+
+    std::string token = trim(authorization.substr(kBearerPrefixLength));
+    if (token.empty())
+        return fail(BearerError::EmptyToken);
+    return token;
+}
+
+const char* bearer_error_message(BearerError error)
+{
+    switch (error)
+    {
+        case BearerError::Missing:
+            return "authorization header is required";
+        case BearerError::BadScheme:
+            return "authorization header must use the Bearer scheme";
+        case BearerError::EmptyToken:
+            return "bearer token must not be empty";
+        case BearerError::None:
+            break;
+    }
+    return "";
 }
 
 std::string trim(const std::string& value)

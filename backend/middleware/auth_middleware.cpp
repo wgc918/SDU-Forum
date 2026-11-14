@@ -28,37 +28,21 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
                             drogon::MiddlewareNextCallback&& next_cb,
                             drogon::MiddlewareCallback&&     mcb)
 {
-    const std::string authorization = req->getHeader("authorization");
-
-    if (authorization.empty())
+    utils::BearerError bearer_error = utils::BearerError::None;
+    auto               token = utils::parse_bearer(req->getHeader("authorization"), &bearer_error);
+    if (!token)
     {
-        LOGW("missing authorization header: %s", req->path().c_str());
+        LOGW("%s: %s", utils::bearer_error_message(bearer_error), req->path().c_str());
         mcb(common::error_response(common::ErrorCode::Unauthorized,
-                                   "authorization header is required"));
-        return;
-    }
-
-    if (!utils::has_bearer_prefix(authorization))
-    {
-        LOGW("invalid authorization scheme: %s", req->path().c_str());
-        mcb(common::error_response(common::ErrorCode::Unauthorized,
-                                   "authorization header must use the Bearer scheme"));
-        return;
-    }
-
-    const std::string token = utils::trim(authorization.substr(utils::kBearerPrefixLength));
-    if (token.empty())
-    {
-        mcb(common::error_response(common::ErrorCode::Unauthorized,
-                                   "bearer token must not be empty"));
+                                   utils::bearer_error_message(bearer_error)));
         return;
     }
 
     std::optional<infra::TokenPayload> payload;
     if (m_is_access)
-        payload = m_access_signer.verify(token);
+        payload = m_access_signer.verify(*token);
     else
-        payload = m_refresh_signer.verify(token);
+        payload = m_refresh_signer.verify(*token);
 
     if (!payload)
     {  // 后续优化可以考虑新增error_code详细区分验证失败的原因，便于前端根据超时原因更新access_token

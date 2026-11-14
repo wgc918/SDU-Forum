@@ -23,15 +23,6 @@ namespace
 constexpr std::size_t kMaxUserIdLength   = 64;
 constexpr std::size_t kMaxPasswordLength = 128;
 
-std::string trim(const std::string& value)
-{
-    std::size_t start = value.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos)
-        return "";
-    std::size_t end = value.find_last_not_of(" \t\r\n");
-    return value.substr(start, end - start + 1);
-}
-
 }  // namespace
 
 AuthController::AuthController(service::AuthService& auth_service) : m_auth_service(auth_service)
@@ -55,7 +46,7 @@ void AuthController::login(const drogon::HttpRequestPtr&                        
         throw common::AppException(common::ErrorCode::InvalidParam,
                                    "user_id and password are required and must be strings");
 
-    const std::string user_id  = trim(body["user_id"].asString());
+    const std::string user_id  = utils::trim(body["user_id"].asString());
     const std::string password = body["password"].asString();
 
     if (user_id.empty() || password.empty())
@@ -96,7 +87,7 @@ void AuthController::signUp(const drogon::HttpRequestPtr&                       
         throw common::AppException(common::ErrorCode::InvalidParam,
                                    "user_id and password are required and must be strings");
 
-    const std::string user_id  = trim(body["user_id"].asString());
+    const std::string user_id  = utils::trim(body["user_id"].asString());
     const std::string password = body["password"].asString();
 
     if (user_id.empty() || password.empty())
@@ -117,19 +108,11 @@ void AuthController::logout(const drogon::HttpRequestPtr&                       
                             std::function<void(const drogon::HttpResponsePtr&)>&& callback)
 {
     // 头部放access_token 载荷放refresh_token
-    const std::string authorization = req->getHeader("authorization");
-
-    if (authorization.empty())
+    utils::BearerError bearer_error = utils::BearerError::None;
+    auto               token = utils::parse_bearer(req->getHeader("authorization"), &bearer_error);
+    if (!token)
         throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "authorization header is required");
-    if (!utils::has_bearer_prefix(authorization))
-        throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "authorization header must use the Bearer scheme");
-
-    const std::string token = utils::trim(authorization.substr(utils::kBearerPrefixLength));
-    if (token.empty())
-        throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "bearer token must not be empty");
+                                   utils::bearer_error_message(bearer_error));
 
     auto json = req->getJsonObject();
     if (json == nullptr)
@@ -145,7 +128,7 @@ void AuthController::logout(const drogon::HttpRequestPtr&                       
     if (refresh_token.empty())
         throw common::AppException(common::ErrorCode::InvalidParam,
                                    "refresh_token must not be empty");
-    bool        state = m_auth_service.logout(refresh_token, token);
+    bool        state = m_auth_service.logout(refresh_token, *token);
     Json::Value data;
     data["state"] = state;
     callback(common::data_response(200, data));
@@ -155,19 +138,11 @@ void AuthController::refresh_token(const drogon::HttpRequestPtr&                
                                    std::function<void(const drogon::HttpResponsePtr&)>&& callback)
 {
     // 头部放 refresh_token 载荷放 access_token(便于将旧的吊销)
-    const std::string authorization = req->getHeader("authorization");
-
-    if (authorization.empty())
+    utils::BearerError bearer_error = utils::BearerError::None;
+    auto               token = utils::parse_bearer(req->getHeader("authorization"), &bearer_error);
+    if (!token)
         throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "authorization header is required");
-    if (!utils::has_bearer_prefix(authorization))
-        throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "authorization header must use the Bearer scheme");
-
-    const std::string token = utils::trim(authorization.substr(utils::kBearerPrefixLength));
-    if (token.empty())
-        throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "bearer token must not be empty");
+                                   utils::bearer_error_message(bearer_error));
 
     auto json = req->getJsonObject();
     if (json == nullptr)
@@ -185,7 +160,7 @@ void AuthController::refresh_token(const drogon::HttpRequestPtr&                
     bool              refreshing   = body["refreshing"].asBool();
     const std::string access_token = body["access_token"].asString();
 
-    service::LoginResult result = m_auth_service.refresh_token(token, access_token, refreshing);
+    service::LoginResult result = m_auth_service.refresh_token(*token, access_token, refreshing);
     Json::Value          data;
     if (refreshing)
     {
@@ -202,19 +177,11 @@ void AuthController::logoff(const drogon::HttpRequestPtr&                       
                             std::function<void(const drogon::HttpResponsePtr&)>&& callback)
 {
     // 头部放access_token 载荷放refresh_token
-    const std::string authorization = req->getHeader("authorization");
-
-    if (authorization.empty())
+    utils::BearerError bearer_error = utils::BearerError::None;
+    auto               token = utils::parse_bearer(req->getHeader("authorization"), &bearer_error);
+    if (!token)
         throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "authorization header is required");
-    if (!utils::has_bearer_prefix(authorization))
-        throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "authorization header must use the Bearer scheme");
-
-    const std::string token = utils::trim(authorization.substr(utils::kBearerPrefixLength));
-    if (token.empty())
-        throw common::AppException(common::ErrorCode::Unauthorized,
-                                   "bearer token must not be empty");
+                                   utils::bearer_error_message(bearer_error));
 
     auto json = req->getJsonObject();
     if (json == nullptr)
@@ -231,7 +198,7 @@ void AuthController::logoff(const drogon::HttpRequestPtr&                       
         throw common::AppException(common::ErrorCode::InvalidParam,
                                    "refresh_token must not be empty");
 
-    bool state = m_auth_service.logoff(middleware::current_public_id(req), refresh_token, token);
+    bool state = m_auth_service.logoff(middleware::current_public_id(req), refresh_token, *token);
     Json::Value data;
     data["state"] = state;
     callback(common::data_response(200, data));
