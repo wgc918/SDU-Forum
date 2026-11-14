@@ -13,15 +13,11 @@
 namespace repository
 {
 TokenRepository::TokenRepository(dcp::ConnectionPool& db_pool, rcp::RedisConnectionPool& redis_pool,
-                                 const std::string& refresh_token_table,
-                                 const std::string& refresh_token_key,
-                                 const std::string& access_token_key, int refresh_ttl_s,
+                                 const std::string& refresh_token_table, int refresh_ttl_s,
                                  int access_ttl_s)
     : m_db_pool(db_pool),
       m_redis_pool(redis_pool),
       m_refresh_token_table(refresh_token_table),
-      m_refresh_token_key(refresh_token_key),
-      m_access_token_key(access_token_key),
       m_refresh_ttl_s(refresh_ttl_s),
       m_access_ttl_s(access_ttl_s)
 

@@ -52,6 +52,16 @@ struct JwtConfig
     std::string refresh_secret;
     int         access_token_minutes = 60;
     int         refresh_token_hours  = 168;
+
+    int access_token_ttl_seconds() const
+    {
+        return access_token_minutes * 60;
+    }
+
+    int refresh_token_ttl_seconds() const
+    {
+        return refresh_token_hours * 3600;
+    }
 };
 
 struct AuthConfig
@@ -59,8 +69,6 @@ struct AuthConfig
     std::string account_table       = "account";
     std::string blacklist_table     = "blacklist";
     std::string refresh_token_table = "refresh_tokens";
-    std::string refresh_token_key   = "refresh_key";
-    std::string access_token_key    = "access_key";
     std::string hash_secret         = "dfacadgafeqwfqvab";
 };
 

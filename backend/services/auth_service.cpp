@@ -27,8 +27,8 @@ AuthService::AuthService(repository::AccountRepository&   account,
       m_token_repo(token),
       m_access_signer(jwt_config.access_secret, jwt_config.issuer),
       m_refresh_signer(jwt_config.refresh_secret, jwt_config.issuer),
-      m_access_ttl_seconds(static_cast<int64_t>(jwt_config.access_token_minutes) * 60),
-      m_refresh_ttl_seconds(static_cast<int64_t>(jwt_config.refresh_token_hours) * 3600),
+      m_access_ttl_seconds(jwt_config.access_token_ttl_seconds()),
+      m_refresh_ttl_seconds(jwt_config.refresh_token_ttl_seconds()),
       m_hash_secret(auth_config.hash_secret)
 {
 }
