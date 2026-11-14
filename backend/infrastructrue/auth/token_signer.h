@@ -32,6 +32,8 @@ public:
     /// 校验签名、issuer 与有效期；任何一项不通过都返回 std::nullopt
     std::optional<TokenPayload> verify(const std::string& token) const;
 
+    /// 考虑新增解析token和查询token ttl 的接口
+
 private:
     std::string m_secret;
     std::string m_issuer;

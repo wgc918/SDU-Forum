@@ -150,6 +150,12 @@ void AppConfig::load(const std::string& path)
     m_auth.account_table       = string_of(auth, "account_table", m_auth.account_table);
     m_auth.blacklist_table     = string_of(auth, "blacklist_table", m_auth.blacklist_table);
 
+    const auto& redis = section_of("redis");
+    m_redis.host      = string_of(redis, "host", m_redis.host);
+    m_redis.port      = int_of(redis, "port", m_redis.port);
+    m_redis.password  = string_of(redis, "passward", "");
+    m_redis.db        = int_of(redis, "db", m_redis.db);
+
     validate();
 }
 
@@ -196,6 +202,11 @@ const JwtConfig& AppConfig::jwt() const noexcept
 const AuthConfig& AppConfig::auth() const noexcept
 {
     return m_auth;
+}
+
+const RedisConfig& AppConfig::redis() const noexcept
+{
+    return m_redis;
 }
 
 }  // namespace infra

@@ -27,6 +27,8 @@ AppContext::~AppContext()
 {
     if (m_db_pool != nullptr)
         m_db_pool->shutdown();
+    if (m_redis_pool != nullptr)
+        m_redis_pool->shutdown();
 }
 
 void AppContext::init_infrastructure()
@@ -46,7 +48,12 @@ void AppContext::init_infrastructure()
     LOGI("database connection pool initialized: %s:%d/%s", db.host.c_str(), db.port,
          db.dbname.c_str());
 
+    const auto&                redis_db = m_config.redis();
     rcp::RedisConnectionConfig redis_config;
+    redis_config.host     = redis_db.host;
+    redis_config.port     = redis_db.port;
+    redis_config.password = redis_db.password;
+    redis_config.db       = redis_db.db;
     m_redis_pool->init(redis_config);
     LOGI("redis connection pool initialized: %s:%d/%d", redis_config.host.c_str(),
          redis_config.port, redis_config.db);

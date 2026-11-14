@@ -89,6 +89,7 @@ public:
     const DatabaseConfig& database() const noexcept;
     const JwtConfig& jwt() const noexcept;
     const AuthConfig& auth() const noexcept;
+    const RedisConfig& redis() const noexcept;
 
 private:
     AppConfig() = default;
@@ -100,6 +101,7 @@ private:
     DatabaseConfig m_database;
     JwtConfig      m_jwt;
     AuthConfig     m_auth;
+    RedisConfig    m_redis;
 };
 
 }  // namespace infra
