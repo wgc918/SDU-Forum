@@ -58,24 +58,47 @@ target_link_libraries(sdu_infra PUBLIC
 )
 
 # ---------------------------------------------------------------------------
+# 业务静态库：供 server 与测试目标复用
+# ---------------------------------------------------------------------------
+add_library(sdu_app STATIC
+    controllers/auth_controller.cpp
+    services/auth_service.cpp
+    repositories/account_repository.cpp
+    repositories/blacklist_repository.cpp
+    repositories/token_repository.cpp
+    repositories/connection_provider.cpp
+    routes/routes.cpp
+    middleware/auth_middleware.cpp
+    utils/utils.cpp
+)
+
+target_include_directories(sdu_app PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(sdu_app PUBLIC
+    sdu_infra
+    Drogon::Drogon
+    JsonCpp::JsonCpp
+)
+
+# ---------------------------------------------------------------------------
 # 应用可执行文件：Drogon 通信框架 + 分层业务代码
 # ---------------------------------------------------------------------------
 add_executable(sdu_forum_server
     app/app.cpp
     app/app_context.cpp
     app/modules/auth_module.cpp
-    controllers/auth_controller.cpp
-    services/auth_service.cpp
-    repositories/account_repository.cpp
-    repositories/blacklist_repository.cpp
-    repositories/token_repository.cpp
-    routes/routes.cpp
-    middleware/auth_middleware.cpp
-    utils/utils.cpp
 )
 
 target_link_libraries(sdu_forum_server PRIVATE
-    sdu_infra
-    Drogon::Drogon
-    JsonCpp::JsonCpp
+    sdu_app
 )
+
+# ---------------------------------------------------------------------------
+# 测试目标：通过 CTest 按 label 区分单元测试与集成测试
+# ---------------------------------------------------------------------------
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
