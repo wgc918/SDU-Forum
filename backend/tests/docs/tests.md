@@ -13,7 +13,7 @@
 
 | 模块 | 测试可执行文件 | CTest 名称 | 用例数 | 使用替身 |
 |---|---|---|---:|---|
-| `repository::TokenRepository` | `test_token_repository` | `TokenRepositoryUnit` | 32 | Dummy / Stub / Spy / Mock / Fake / Unavailable |
+| `repository::TokenRepository` | `test_token_repository` | `TokenRepositoryUnit` | 34 | Dummy / Stub / Spy / Mock / Fake / Unavailable |
 | `utils::timestamp_to_string` | `test_utils` | `UtilsUnit` | 1 | 无（纯函数） |
 
 - 测试框架：doctest 2.4.11
@@ -227,15 +227,15 @@ private:
 
 | 替身 | 被哪些用例使用 |
 |---|---|
-| `DummyDbProvider` | 1, 2, 3, 4, 5, 6, 7, 12, 16, 20, 21, 22, 27, 28, 29, 30, 31 |
+| `DummyDbProvider` | 1, 2, 3, 4, 5, 6, 7, 12, 21, 22, 27, 28, 29, 30, 31 |
 | `DummyCacheProvider` | 1, 8, 9, 10, 11, 25, 26, 32 |
 | `UnavailableDbProvider` | 10, 17 |
-| `UnavailableCacheProvider` | 4, 7, 16 |
-| `StubDbConnection` / `StubDbProvider` | 9, 11, 13, 14, 18, 19, 23, 24, 25, 26 |
-| `SpyDbConnection` / `SpyDbProvider` | 8, 15, 32 |
+| `UnavailableCacheProvider` | 4, 7, 16, 33 |
+| `StubDbConnection` / `StubDbProvider` | 9, 11, 13, 14, 18, 19, 23, 24, 25, 26, 33, 34 |
+| `SpyDbConnection` / `SpyDbProvider` | 8, 15, 16, 20, 32 |
 | `FakeCacheConnection` / `FakeCacheProvider` | 2, 3, 5, 12, 15, 17, 18, 19, 27, 28, 29 |
-| `StubCacheConnection` / `StubCacheProvider` | 6, 21, 22 |
-| `MockCacheConnection` / `MockCacheProvider` | 13, 14, 20, 23, 24, 30, 31 |
+| `StubCacheConnection` / `StubCacheProvider` | 6, 21, 22, 23, 34 |
+| `MockCacheConnection` / `MockCacheProvider` | 13, 14, 20, 24, 30, 31 |
 | `StubResultSet` | 由 `StubDbConnection`、`SpyDbConnection` 内部使用 |
 
 ## 4. TokenRepository
@@ -282,14 +282,14 @@ flowchart LR
 | 方法 | 正常 | 边界 | 异常 | 交互 |
 |---|---|---|---|---|
 | `hash_secret` | 返回配置值 | 不测：配置由上层保证 | 不测：返回 const 引用，无异常路径 | 不适用 |
-| `find_access_token` | 缓存命中 → true | 未命中 → false；空字符串值 → true | 连接不可用、`get` 抛异常 → RedisError | 只读，不写缓存 |
-| `insert_access_token` | 写入成功 → true | 写入被拒 → false；TTL=0 原样转发 | 连接不可用、`set` 抛异常 → RedisError | key/value 均为 token_hash；TTL 转发 |
+| `find_access_token` | 缓存命中 → true | 未命中 → false；空字符串值 → true | 连接不可用、`get` 抛异常 → 返回 false | 只读，不写缓存 |
+| `insert_access_token` | 写入成功 → true | 写入被拒 → false；TTL=0 原样转发 | 连接不可用、`set` 抛异常 → 返回 false | key/value 均为 token_hash；TTL 转发 |
 | `insert_refresh_token` | 插入 1 行 → true | 0 行 → false | 连接不可用、prepare/bind/update 异常 → DatabaseError | INSERT SQL、绑定下标、事件顺序 |
-| `find_refresh_token` | 缓存命中 → true；DB 命中 → true + 回写 | DB 无行 → false；回写失败仍 true | 连接不可用、SQL/空结果集/缓存异常 | SELECT SQL、绑定、回写契约、负向交互 |
+| `find_refresh_token` | 缓存命中 → true；DB 命中 → true + 回写 | DB 无行 → false；回写失败/回写抛异常仍 true | 缓存不可用/`get` 异常 → 降级 DB；SQL/空结果集 → DatabaseError | SELECT SQL、绑定、回写契约、负向交互 |
 
 ### 4.3 用例目录
 
-> 编号对应 [test_token_repository.cpp](../unit/repositories/test_token_repository.cpp) 中的 `TEST_CASE` 顺序；下表按方法分组展示。
+> 编号是本文档的设计编号，与 [test_token_repository.cpp](../unit/repositories/test_token_repository.cpp) 中的 `TEST_CASE` 一一对应；下表按方法分组展示，不要求与文件行序一致。
 
 #### 配置读取
 
@@ -303,8 +303,8 @@ flowchart LR
 |---|---|---|---|
 | 2 | `find_access_token returns true on cache hit` | DummyDb + FakeCache，预置 key | 返回 true |
 | 3 | `find_access_token returns false on cache miss` | DummyDb + FakeCache，空 | 返回 false |
-| 4 | `find_access_token throws RedisError when cache unavailable` | DummyDb + UnavailableCache | 抛 RedisError |
-| 21 | `find_access_token throws RedisError when cache get throws` | DummyDb + StubCache，`throw_on_get=true` | 抛 RedisError |
+| 4 | `find_access_token returns false when cache unavailable` | DummyDb + UnavailableCache | 返回 false |
+| 21 | `find_access_token returns false when cache get throws` | DummyDb + StubCache，`throw_on_get=true` | 返回 false |
 | 28 | `find_access_token returns true for empty-string value` | DummyDb + FakeCache，值为空字符串 | 返回 true |
 | 31 | `find_access_token does not write cache` | DummyDb + MockCache，空期望 | 返回 false；`set_calls` 为空；`last_get_key` 正确；事件仅 `get`；`verify()` |
 
@@ -314,8 +314,8 @@ flowchart LR
 |---|---|---|---|
 | 5 | `insert_access_token stores token with configured ttl` | DummyDb + FakeCache | 返回 true；key 存在；TTL=600 |
 | 6 | `insert_access_token returns false when cache rejects write` | DummyDb + StubCache，`set_result=false` | 返回 false |
-| 7 | `insert_access_token throws RedisError when cache unavailable` | DummyDb + UnavailableCache | 抛 RedisError |
-| 22 | `insert_access_token throws RedisError when cache set throws` | DummyDb + StubCache，`throw_on_set=true` | 抛 RedisError |
+| 7 | `insert_access_token returns false when cache unavailable` | DummyDb + UnavailableCache | 返回 false |
+| 22 | `insert_access_token returns false when cache set throws` | DummyDb + StubCache，`throw_on_set=true` | 返回 false |
 | 27 | `insert_access_token stores the exact token value` | DummyDb + FakeCache | 缓存 value 等于 token_hash |
 | 29 | `insert_access_token forwards zero ttl` | DummyDb + FakeCache，`access_ttl_s=0` | 返回 true；TTL=0 |
 
@@ -339,14 +339,16 @@ flowchart LR
 | 13 | `find_refresh_token loads from db and writes back to cache` | StubDb，`has_row=true` + MockCache，`expect_set` | 返回 true；`verify()`；事件 `get → set` |
 | 14 | `find_refresh_token returns false and skips cache on db miss` | StubDb，`has_row=false` + MockCache，空期望 | 返回 false；`verify()` |
 | 15 | `find_refresh_token queries table and binds token hash` | SpyDb，`has_row=true` + FakeCache，空 | 返回 true；SELECT SQL 正确；绑定下标 1；`query_calls=1`；事件 `prepare → bind_string → query` |
-| 16 | `find_refresh_token throws RedisError when cache unavailable` | DummyDb + UnavailableCache | 抛 RedisError |
+| 16 | `find_refresh_token falls back to db when cache unavailable` | SpyDb，`has_row=true` + UnavailableCache | 返回 true；`prepare_calls=1`；`query_calls=1`；SELECT SQL 正确 |
 | 17 | `find_refresh_token throws DatabaseError when db unavailable` | UnavailableDb + FakeCache，空 | 抛 DatabaseError |
 | 18 | `find_refresh_token throws DatabaseError on sql failure` | StubDb，`throw_on_query=true` + FakeCache | 抛 DatabaseError |
 | 19 | `find_refresh_token throws DatabaseError when query result is null` | StubDb，`return_null_result_set=true` + FakeCache | 抛 DatabaseError |
-| 20 | `find_refresh_token throws RedisError when cache get throws` | DummyDb + MockCache，`throw_on_get=true` | 抛 RedisError |
-| 23 | `find_refresh_token throws RedisError when cache set throws` | StubDb，`has_row=true` + MockCache，`throw_on_set=true` | 抛 RedisError |
+| 20 | `find_refresh_token falls back to db when cache get throws` | SpyDb，`has_row=true` + MockCache，`throw_on_get=true`，`expect_set` | 返回 true；`prepare_calls=1`；`query_calls=1`；`verify()`；事件 `get → set` |
+| 23 | `find_refresh_token returns true when cache write-back throws` | StubDb，`has_row=true` + StubCache，`throw_on_set=true` | 返回 true |
 | 24 | `find_refresh_token returns true when cache write-back fails` | StubDb，`has_row=true` + MockCache，`set_result=false` | 返回 true；`verify()` |
 | 30 | `find_refresh_token does not write cache on cache hit` | DummyDb + MockCache，`get_result=hash` | 返回 true；`set_calls` 为空；`last_get_key` 正确；事件仅 `get`；`verify()` |
+| 33 | `find_refresh_token returns false from db fallback when cache unavailable` | StubDb，`has_row=false` + UnavailableCache | 返回 false |
+| 34 | `find_refresh_token returns false from db fallback when cache get throws` | StubDb，`has_row=false` + StubCache，`throw_on_get=true` | 返回 false |
 
 ### 4.4 交互契约
 
@@ -363,12 +365,14 @@ flowchart LR
 - SQL：`SELECT id FROM refresh_token_it WHERE token_hash=?`
 - 字符串参数：下标 1，值 `token_hash`
 - 事件顺序：`prepare → bind_string → query`
+- 缓存不可用：直接降级到 DB；DB 有行 true，无行 false；不写缓存
 - 缓存命中：直接返回 true，不访问 DB，不写缓存
 - 缓存未命中且 DB 有行：写回缓存，key/value 均为 `token_hash`，TTL 为 `refresh_ttl_s`
 - 缓存未命中且 DB 无行：返回 false，不写缓存
+- 缓存 `get` 抛异常：捕获并记录日志，按缓存未命中处理，降级到 DB；DB 有行 true（并尝试回写），无行 false
 - 缓存回写语义：
   - `set` 返回 false：best-effort，仍返回 true
-  - `set` 抛异常：映射为 RedisError
+  - `set` 抛异常：捕获并记录日志，仍返回 true
 
 #### `insert_access_token`
 
@@ -376,21 +380,29 @@ flowchart LR
 - 缓存 value：`token_hash`
 - TTL：`access_ttl_s`
 - 返回：`set` 的返回值
+- 缓存不可用或 `set` 抛异常：返回 false
 
 #### `find_access_token`
 
 - 缓存 key：`token_hash`
 - 返回：`get` 是否有值，空字符串也算命中
+- 缓存不可用或 `get` 抛异常：返回 false
 
 ### 4.5 错误映射
 
-| 场景 | 错误码 |
+| 场景 | 错误码/结果 |
 |---|---|
 | DB 连接不可用 | `common::ErrorCode::DatabaseError` |
 | `prepare_statement` / `set_string` / `set_datetime` / `execute_query` / `execute_update` 抛 `sql::SQLException` | `common::ErrorCode::DatabaseError` |
 | `execute_query()` 返回 `nullptr` | `common::ErrorCode::DatabaseError` |
-| 缓存连接不可用 | `common::ErrorCode::RedisError` |
-| 缓存 `get/set` 抛 `std::exception` | `common::ErrorCode::RedisError` |
+| `find_refresh_token` 缓存连接不可用 | 降级 DB，不抛 RedisError |
+| `find_access_token` / `insert_access_token` 缓存连接不可用 | 返回 false |
+| `find_refresh_token` 缓存 `get` 抛 `std::exception` | 捕获并记录日志，降级 DB（有行 true、无行 false），不抛 RedisError |
+| `find_access_token` 缓存 `get` 抛 `std::exception` | 返回 false |
+| `find_refresh_token` 缓存 `set` 抛 `std::exception` | 捕获并记录日志，返回 true |
+| `insert_access_token` 缓存 `set` 抛 `std::exception` | 返回 false |
+| `find_refresh_token` 缓存 `set` 返回 false | 返回 true（best-effort） |
+| `insert_access_token` 缓存 `set` 返回 false | 返回 false |
 
 ### 4.6 测试配置与辅助函数
 
@@ -552,3 +564,5 @@ set_tests_properties(<Unit>Unit PROPERTIES
 | 日期 | 变更 |
 |---|---|
 | 2026-11-16 | 初版：收录 `TokenRepository` 32 个用例、`Utils` 1 个用例，以及全部测试替身设计 |
+| 2026-11-17 | 缓存降级策略调整：缓存连接不可用时 `find_refresh_token` 降级 DB，`find_access_token` / `insert_access_token` 返回 false；缓存回写异常不再抛错；用例数更新为 33 |
+| 2026-11-17 | `find_refresh_token` 的缓存 `get` 运行时异常也降级 DB：原“抛 RedisError”用例替换为“降级 DB 命中”和“降级 DB 未命中”两个用例；TokenRepository 不再有 RedisError 抛出路径；用例数更新为 34 |

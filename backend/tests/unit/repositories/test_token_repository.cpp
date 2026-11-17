@@ -4,10 +4,11 @@
  *
  * 测试覆盖范围:
  * - hash_secret 配置读取
- * - find_access_token 缓存命中、未命中、连接不可用
- * - insert_access_token 写入成功、写入被拒、连接不可用、TTL 转发
- * - insert_refresh_token 插入成功、零行、连接不可用、SQL 异常
- * - find_refresh_token 缓存命中、回源查询、缓存回写、未命中、异常分支
+ * - find_access_token 缓存命中、未命中、缓存不可用/异常时返回 false
+ * - insert_access_token 写入成功、写入被拒、缓存不可用/异常时返回 false、TTL 转发
+ * - insert_refresh_token 插入成功、零行、连接不可用、prepare/bind/update 异常
+ * - find_refresh_token 缓存命中、缓存不可用/缓存 get 异常时降级
+ * DB、回源查询、缓存回写、未命中、异常分支
  * - 五类测试替身：Dummy / Stub / Spy / Mock / Fake
  */
 
@@ -15,9 +16,8 @@
 #include <utility>
 #include <vector>
 
-#include "doctest.h"
-
 #include "common/errors.h"
+#include "doctest.h"
 #include "repositories/token_repository.h"
 #include "support/test_doubles.h"
 
@@ -86,7 +86,7 @@ TEST_SUITE("TokenRepository")
 
     TEST_CASE("find_access_token returns true on cache hit")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::FakeCacheProvider cache;
         cache.fake().put("access-hash", "access-hash", 600);
 
@@ -97,7 +97,7 @@ TEST_SUITE("TokenRepository")
 
     TEST_CASE("find_access_token returns false on cache miss")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::FakeCacheProvider cache;
 
         TokenRepository repo(db, cache, make_config());
@@ -105,20 +105,19 @@ TEST_SUITE("TokenRepository")
         CHECK_FALSE(repo.find_access_token("access-hash"));
     }
 
-    TEST_CASE("find_access_token throws RedisError when cache unavailable")
+    TEST_CASE("find_access_token returns false when cache unavailable")
     {
         test_support::DummyDbProvider          db;
         test_support::UnavailableCacheProvider cache;
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code([&repo] { repo.find_access_token("access-hash"); },
-                               common::ErrorCode::RedisError));
+        CHECK_FALSE(repo.find_access_token("access-hash"));
     }
 
     TEST_CASE("insert_access_token stores token with configured ttl")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::FakeCacheProvider cache;
 
         TokenRepository repo(db, cache, make_config());
@@ -130,8 +129,8 @@ TEST_SUITE("TokenRepository")
 
     TEST_CASE("insert_access_token returns false when cache rejects write")
     {
-        test_support::DummyDbProvider      db;
-        test_support::StubCacheProvider    cache;
+        test_support::DummyDbProvider   db;
+        test_support::StubCacheProvider cache;
         cache.connection().state().set_result = false;
 
         TokenRepository repo(db, cache, make_config());
@@ -139,16 +138,14 @@ TEST_SUITE("TokenRepository")
         CHECK_FALSE(repo.insert_access_token({"access-hash", 1700000000}));
     }
 
-    TEST_CASE("insert_access_token throws RedisError when cache unavailable")
+    TEST_CASE("insert_access_token returns false when cache unavailable")
     {
         test_support::DummyDbProvider          db;
         test_support::UnavailableCacheProvider cache;
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code(
-            [&repo] { repo.insert_access_token({"access-hash", 1700000000}); },
-            common::ErrorCode::RedisError));
+        CHECK_FALSE(repo.insert_access_token({"access-hash", 1700000000}));
     }
 
     // ============================================
@@ -198,9 +195,8 @@ TEST_SUITE("TokenRepository")
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code(
-            [&repo] { repo.insert_refresh_token({"refresh-hash", 1700000000}); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&repo] { repo.insert_refresh_token({"refresh-hash", 1700000000}); },
+                               common::ErrorCode::DatabaseError));
     }
 
     TEST_CASE("insert_refresh_token throws DatabaseError on sql failure")
@@ -211,9 +207,8 @@ TEST_SUITE("TokenRepository")
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code(
-            [&repo] { repo.insert_refresh_token({"refresh-hash", 1700000000}); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&repo] { repo.insert_refresh_token({"refresh-hash", 1700000000}); },
+                               common::ErrorCode::DatabaseError));
     }
 
     // ============================================
@@ -223,7 +218,7 @@ TEST_SUITE("TokenRepository")
     TEST_CASE("find_refresh_token returns true on cache hit without db access")
     {
         // Dummy: 命中缓存时不应访问数据库
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::FakeCacheProvider cache;
         cache.fake().put("refresh-hash", "refresh-hash", 3600);
 
@@ -281,15 +276,30 @@ TEST_SUITE("TokenRepository")
               std::vector<std::string>{"prepare", "bind_string", "query"});
     }
 
-    TEST_CASE("find_refresh_token throws RedisError when cache unavailable")
+    TEST_CASE("find_refresh_token falls back to db when cache unavailable")
     {
-        test_support::DummyDbProvider          db;
+        test_support::SpyDbProvider db;
+        db.connection().state().has_row = true;
         test_support::UnavailableCacheProvider cache;
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code([&repo] { repo.find_refresh_token("refresh-hash"); },
-                               common::ErrorCode::RedisError));
+        CHECK(repo.find_refresh_token("refresh-hash"));
+        CHECK(db.connection().state().prepare_calls == 1);
+        CHECK(db.connection().state().query_calls == 1);
+        CHECK(db.connection().state().prepared_sql ==
+              "SELECT id FROM refresh_token_it WHERE token_hash=?");
+    }
+
+    TEST_CASE("find_refresh_token returns false from db fallback when cache unavailable")
+    {
+        test_support::StubDbProvider db;
+        db.connection().state().has_row = false;
+        test_support::UnavailableCacheProvider cache;
+
+        TokenRepository repo(db, cache, make_config());
+
+        CHECK_FALSE(repo.find_refresh_token("refresh-hash"));
     }
 
     TEST_CASE("find_refresh_token throws DatabaseError when db unavailable")
@@ -331,54 +341,67 @@ TEST_SUITE("TokenRepository")
                                common::ErrorCode::DatabaseError));
     }
 
-    TEST_CASE("find_refresh_token throws RedisError when cache get throws")
+    TEST_CASE("find_refresh_token falls back to db when cache get throws")
     {
-        test_support::DummyDbProvider db;
+        test_support::SpyDbProvider db;
+        db.connection().state().has_row = true;
         test_support::MockCacheProvider cache;
         cache.mock().state().throw_on_get = true;
+        cache.mock().expect_set("refresh-hash", "refresh-hash", 3600);
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code([&repo] { repo.find_refresh_token("refresh-hash"); },
-                               common::ErrorCode::RedisError));
+        CHECK(repo.find_refresh_token("refresh-hash"));
+        CHECK(db.connection().state().prepare_calls == 1);
+        CHECK(db.connection().state().query_calls == 1);
+        cache.mock().verify();
+        CHECK(cache.mock().state().events == std::vector<std::string>{"get", "set"});
     }
 
-    TEST_CASE("find_access_token throws RedisError when cache get throws")
+    TEST_CASE("find_refresh_token returns false from db fallback when cache get throws")
     {
-        test_support::DummyDbProvider db;
+        test_support::StubDbProvider db;
+        db.connection().state().has_row = false;
         test_support::StubCacheProvider cache;
         cache.connection().state().throw_on_get = true;
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code([&repo] { repo.find_access_token("access-hash"); },
-                               common::ErrorCode::RedisError));
+        CHECK_FALSE(repo.find_refresh_token("refresh-hash"));
     }
 
-    TEST_CASE("insert_access_token throws RedisError when cache set throws")
+    TEST_CASE("find_access_token returns false when cache get throws")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
+        test_support::StubCacheProvider cache;
+        cache.connection().state().throw_on_get = true;
+
+        TokenRepository repo(db, cache, make_config());
+
+        CHECK_FALSE(repo.find_access_token("access-hash"));
+    }
+
+    TEST_CASE("insert_access_token returns false when cache set throws")
+    {
+        test_support::DummyDbProvider   db;
         test_support::StubCacheProvider cache;
         cache.connection().state().throw_on_set = true;
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code(
-            [&repo] { repo.insert_access_token({"access-hash", 1700000000}); },
-            common::ErrorCode::RedisError));
+        CHECK_FALSE(repo.insert_access_token({"access-hash", 1700000000}));
     }
 
-    TEST_CASE("find_refresh_token throws RedisError when cache set throws")
+    TEST_CASE("find_refresh_token returns true when cache write-back throws")
     {
         test_support::StubDbProvider db;
         db.connection().state().has_row = true;
-        test_support::MockCacheProvider cache;
-        cache.mock().state().throw_on_set = true;
+        test_support::StubCacheProvider cache;
+        cache.connection().state().throw_on_set = true;
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code([&repo] { repo.find_refresh_token("refresh-hash"); },
-                               common::ErrorCode::RedisError));
+        CHECK(repo.find_refresh_token("refresh-hash"));
     }
 
     // ============================================
@@ -406,27 +429,25 @@ TEST_SUITE("TokenRepository")
     TEST_CASE("insert_refresh_token throws DatabaseError when prepare fails")
     {
         test_support::DummyCacheProvider cache;
-        test_support::StubDbProvider db;
+        test_support::StubDbProvider     db;
         db.connection().state().throw_on_prepare = true;
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code(
-            [&repo] { repo.insert_refresh_token({"refresh-hash", 1700000000}); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&repo] { repo.insert_refresh_token({"refresh-hash", 1700000000}); },
+                               common::ErrorCode::DatabaseError));
     }
 
     TEST_CASE("insert_refresh_token throws DatabaseError when binding fails")
     {
         test_support::DummyCacheProvider cache;
-        test_support::StubDbProvider db;
+        test_support::StubDbProvider     db;
         db.connection().state().throw_on_set_string = true;
 
         TokenRepository repo(db, cache, make_config());
 
-        CHECK(throws_with_code(
-            [&repo] { repo.insert_refresh_token({"refresh-hash", 1700000000}); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&repo] { repo.insert_refresh_token({"refresh-hash", 1700000000}); },
+                               common::ErrorCode::DatabaseError));
     }
 
     // ============================================
@@ -435,7 +456,7 @@ TEST_SUITE("TokenRepository")
 
     TEST_CASE("insert_access_token stores the exact token value")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::FakeCacheProvider cache;
 
         TokenRepository repo(db, cache, make_config());
@@ -448,7 +469,7 @@ TEST_SUITE("TokenRepository")
 
     TEST_CASE("find_access_token returns true for empty-string value")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::FakeCacheProvider cache;
         cache.fake().put("access-hash", "", 600);
 
@@ -459,10 +480,10 @@ TEST_SUITE("TokenRepository")
 
     TEST_CASE("insert_access_token forwards zero ttl")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::FakeCacheProvider cache;
-        TokenStoreConfig config = make_config();
-        config.access_ttl_s     = 0;
+        TokenStoreConfig                config = make_config();
+        config.access_ttl_s                    = 0;
 
         TokenRepository repo(db, cache, config);
 
@@ -472,7 +493,7 @@ TEST_SUITE("TokenRepository")
 
     TEST_CASE("find_refresh_token does not write cache on cache hit")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::MockCacheProvider cache;
         cache.mock().state().get_result = "refresh-hash";
 
@@ -487,7 +508,7 @@ TEST_SUITE("TokenRepository")
 
     TEST_CASE("find_access_token does not write cache")
     {
-        test_support::DummyDbProvider db;
+        test_support::DummyDbProvider   db;
         test_support::MockCacheProvider cache;
 
         TokenRepository repo(db, cache, make_config());
@@ -502,7 +523,7 @@ TEST_SUITE("TokenRepository")
     TEST_CASE("insert_refresh_token does not execute query")
     {
         test_support::DummyCacheProvider cache;
-        test_support::SpyDbProvider db;
+        test_support::SpyDbProvider      db;
         db.connection().state().update_rows = 1;
 
         TokenRepository repo(db, cache, make_config());

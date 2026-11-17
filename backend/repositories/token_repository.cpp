@@ -28,23 +28,7 @@ TokenRepository::TokenRepository(IDbConnectionProvider&    db_provider,
 /// @throws common::AppException 数据库不可用
 bool TokenRepository::find_refresh_token(const std::string& token_hash)
 {
-    // 直接把token_hash当作key来存到redis中
-    auto redis_conn = m_cache_provider.acquire();
-    if (!redis_conn)
-        throw common::AppException(common::ErrorCode::RedisError, "redis connection unavailable");
-    std::optional<std::string> res;
-    try
-    {
-        res = redis_conn->get(token_hash);
-    }
-    catch (const std::exception& e)
-    {
-        LOGW("get refresh_token cache failed:%s", e.what());
-        throw common::AppException(common::ErrorCode::RedisError, "redis query failed");
-    }
-
-    // 缓存未命中
-    if (!res)
+    auto db_func = [&]()
     {
         auto db_conn = m_db_provider.acquire();
         if (!db_conn)
@@ -67,18 +51,49 @@ bool TokenRepository::find_refresh_token(const std::string& token_hash)
             LOGW("query refresh_token failed:%s", e.what());
             throw common::AppException(common::ErrorCode::DatabaseError, "database query failed");
         }
-
-        // 缓存回写是 best-effort：写入失败不影响数据库命中结果
-        try
-        {
-            redis_conn->set(token_hash, token_hash, m_refresh_ttl_s);
-        }
-        catch (const std::exception& e)
-        {
-            LOGW("set refresh_token cache failed:%s", e.what());
-            throw common::AppException(common::ErrorCode::RedisError, "redis write failed");
-        }
         return true;
+    };
+
+    // 直接把token_hash当作key来存到redis中
+    auto redis_conn = m_cache_provider.acquire();
+    if (!redis_conn)
+    {  // 缓存不能用自动降级到数据库
+        LOGW("redis cannot be automatically downgraded to the database");
+        return db_func();
+    }
+
+    std::optional<std::string> res;
+    try
+    {
+        res = redis_conn->get(token_hash);
+    }
+    catch (const std::exception& e)
+    {
+        LOGW("get refresh_token cache failed:%s", e.what());
+        // throw common::AppException(common::ErrorCode::RedisError, "redis query failed");
+        res = std::nullopt;
+    }
+
+    // 缓存未命中
+    if (!res)
+    {
+        if (db_func())
+        {
+            // 缓存回写是 best-effort：写入失败不影响数据库命中结果
+            try
+            {
+                redis_conn->set(token_hash, token_hash, m_refresh_ttl_s);
+            }
+            catch (const std::exception& e)
+            {
+                LOGW("set refresh_token cache failed:%s", e.what());
+            }
+            return true;
+        }
+        else
+        {
+            return false;
+        }
     }
 
     return true;
@@ -112,7 +127,12 @@ bool TokenRepository::find_access_token(const std::string& token_hash)
 {
     auto redis_conn = m_cache_provider.acquire();
     if (!redis_conn)
-        throw common::AppException(common::ErrorCode::RedisError, "redis connection unavailable");
+    {
+        // throw common::AppException(common::ErrorCode::RedisError, "redis connection
+        // unavailable");
+        LOGW("redis connection unavailable");
+        return false;
+    }
     std::optional<std::string> res;
     try
     {
@@ -121,7 +141,8 @@ bool TokenRepository::find_access_token(const std::string& token_hash)
     catch (const std::exception& e)
     {
         LOGW("get access_token cache failed:%s", e.what());
-        throw common::AppException(common::ErrorCode::RedisError, "redis query failed");
+        // throw common::AppException(common::ErrorCode::RedisError, "redis query failed");
+        return false;
     }
     return res.has_value();
 }
@@ -131,7 +152,12 @@ bool TokenRepository::insert_access_token(const TokenRecord& token)
 {
     auto redis_conn = m_cache_provider.acquire();
     if (!redis_conn)
-        throw common::AppException(common::ErrorCode::RedisError, "redis connection unavailable");
+    {
+        // throw common::AppException(common::ErrorCode::RedisError, "redis connection
+        // unavailable");
+        LOGW("redis connection unavailable");
+        return false;
+    }
     try
     {
         return redis_conn->set(token.token_hash, token.token_hash, m_access_ttl_s);
@@ -139,8 +165,9 @@ bool TokenRepository::insert_access_token(const TokenRecord& token)
     catch (const std::exception& e)
     {
         LOGW("set access_token cache failed:%s", e.what());
-        throw common::AppException(common::ErrorCode::RedisError, "redis write failed");
+        // throw common::AppException(common::ErrorCode::RedisError, "redis write failed");
     }
+    return false;
 }
 
 const std::string& TokenRepository::hash_secret() const noexcept
