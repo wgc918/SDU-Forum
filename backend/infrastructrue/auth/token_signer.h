@@ -13,6 +13,10 @@ struct SignedToken
     int64_t     expires_at;  // Unix 秒
 };
 
+// 放在这里不是很好，但是先放这了
+constexpr char kUserRole[]  = "sduforum_user";
+constexpr char kAdminRole[] = "sduforum_admin";
+
 struct TokenPayload
 {
     std::string sub;
