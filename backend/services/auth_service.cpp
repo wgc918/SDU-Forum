@@ -34,10 +34,6 @@ AuthService::AuthService(repository::AccountRepository&   account,
 
 LoginResult AuthService::login(const std::string& user_id, const std::string& password)
 {
-    if (user_id.empty() || password.empty())
-        throw common::AppException(common::ErrorCode::InvalidParam,
-                                   "user_id and password must not be empty");
-
     // if (auto ban = m_blacklist_repo.find_active_by_user_id(user_id))
     // {
     //     Json::Value details;
@@ -119,11 +115,8 @@ static std::string make_public_id(const std::string& prefix = "usr", size_t rand
     return prefix + "_" + random_base62(rand_len);
 }
 
-bool AuthService::signUp(const std::string& user_id, const std::string& passward)
+std::string AuthService::signUp(const std::string& user_id, const std::string& passward)
 {
-    if (user_id.empty() || passward.empty())
-        throw common::AppException(common::ErrorCode::InvalidParam,
-                                   "user_id and password must not be empty");
     infra::PasswordHash       hash_passward = infra::hash_password(passward);
     repository::AccountRecord account;
     account.public_id     = make_public_id();
@@ -138,17 +131,16 @@ bool AuthService::signUp(const std::string& user_id, const std::string& passward
         throw common::AppException(common::ErrorCode::InvalidParam, "user_id is existed");
     }
 
-    bool success = m_account_repo.insert_account_by_user_id(user_id, account);
-    if (success)
-        LOGI("sign up succeed: user_id=%s", user_id.c_str());
-    else
+    if (!m_account_repo.insert_account_by_user_id(user_id, account))
     {
         LOGW("sign up failed: user_id=%s ,update rows=0", user_id.c_str());
+        throw common::AppException(common::ErrorCode::DatabaseError, "failed to create account");
     }
-    return success;
+    LOGI("sign up succeed: user_id=%s", user_id.c_str());
+    return account.public_id;
 }
 
-bool AuthService::logout(const std::string& refresh_token, const std::string access_token)
+void AuthService::logout(const std::string& refresh_token, const std::string access_token)
 {
     auto token = m_token_repo.find_refresh_token(
         utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token));
@@ -169,8 +161,9 @@ bool AuthService::logout(const std::string& refresh_token, const std::string acc
     access_token_recd.exp_at =
         0;  // access_token 不存数据库供审计，仅缓存供吊销判断，缓存ttl默认为原ttl
 
-    return m_token_repo.insert_refresh_token(refresh_token_recd) &&
-           m_token_repo.insert_access_token(access_token_recd);
+    if (!m_token_repo.insert_refresh_token(refresh_token_recd) ||
+        !m_token_repo.insert_access_token(access_token_recd))
+        throw common::AppException(common::ErrorCode::DatabaseError, "failed to revoke token");
 }
 
 LoginResult AuthService::refresh_token(const std::string& refresh_token,
@@ -218,7 +211,7 @@ LoginResult AuthService::refresh_token(const std::string& refresh_token,
     return result;
 }
 
-bool AuthService::logoff(const std::string& public_id, const std::string& refresh_token,
+void AuthService::logoff(const std::string& public_id, const std::string& refresh_token,
                          const std::string access_token)
 {
     auto token = m_token_repo.find_refresh_token(
@@ -240,8 +233,9 @@ bool AuthService::logoff(const std::string& public_id, const std::string& refres
         utils::hmac_sha256_base64url(m_token_repo.hash_secret(), access_token);
     access_token_recd.exp_at = 0;
 
-    return m_account_repo.delete_account_by_public_id(public_id) &&
-           m_token_repo.insert_refresh_token(refresh_token_recd) &&
-           m_token_repo.insert_access_token(access_token_recd);
+    if (!m_account_repo.delete_account_by_public_id(public_id) ||
+        !m_token_repo.insert_refresh_token(refresh_token_recd) ||
+        !m_token_repo.insert_access_token(access_token_recd))
+        throw common::AppException(common::ErrorCode::DatabaseError, "failed to delete account");
 }
 }  // namespace service

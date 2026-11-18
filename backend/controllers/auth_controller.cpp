@@ -98,10 +98,10 @@ void AuthController::signUp(const drogon::HttpRequestPtr&                       
     if (password.size() > kMaxPasswordLength)
         throw common::AppException(common::ErrorCode::InvalidParam, "password is too long");
 
-    bool        state = m_auth_service.signUp(user_id, password);
-    Json::Value data;
-    data["state"] = state;
-    callback(common::data_response(200, data));
+    const std::string public_id = m_auth_service.signUp(user_id, password);
+    Json::Value       data;
+    data["public_id"] = public_id;
+    callback(common::created_response(data));
 }
 
 void AuthController::logout(const drogon::HttpRequestPtr&                         req,
@@ -128,10 +128,8 @@ void AuthController::logout(const drogon::HttpRequestPtr&                       
     if (refresh_token.empty())
         throw common::AppException(common::ErrorCode::InvalidParam,
                                    "refresh_token must not be empty");
-    bool        state = m_auth_service.logout(refresh_token, *token);
-    Json::Value data;
-    data["state"] = state;
-    callback(common::data_response(200, data));
+    m_auth_service.logout(refresh_token, *token);
+    callback(common::no_content_response());
 }
 
 void AuthController::refresh_token(const drogon::HttpRequestPtr&                         req,
@@ -162,14 +160,11 @@ void AuthController::refresh_token(const drogon::HttpRequestPtr&                
 
     service::LoginResult result = m_auth_service.refresh_token(*token, access_token, refreshing);
     Json::Value          data;
-    if (refreshing)
-    {
-        data["public_id"]         = result.public_id;
-        data["refresh_token"]     = result.refresh_token;
-        data["refresh_token_exp"] = result.refresh_token_exp;
-    }
-    data["access_token"]     = result.access_token;
-    data["access_token_exp"] = result.access_token_exp;
+    data["public_id"]         = result.public_id;
+    data["refresh_token"]     = result.refresh_token;
+    data["refresh_token_exp"] = result.refresh_token_exp;
+    data["access_token"]      = result.access_token;
+    data["access_token_exp"]  = result.access_token_exp;
     callback(common::data_response(200, data));
 }
 
@@ -198,9 +193,7 @@ void AuthController::logoff(const drogon::HttpRequestPtr&                       
         throw common::AppException(common::ErrorCode::InvalidParam,
                                    "refresh_token must not be empty");
 
-    bool state = m_auth_service.logoff(middleware::current_public_id(req), refresh_token, *token);
-    Json::Value data;
-    data["state"] = state;
-    callback(common::data_response(200, data));
+    m_auth_service.logoff(middleware::current_public_id(req), refresh_token, *token);
+    callback(common::no_content_response());
 }
 }  // namespace controller

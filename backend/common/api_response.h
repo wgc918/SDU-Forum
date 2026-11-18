@@ -25,6 +25,20 @@ inline drogon::HttpResponsePtr data_response(int status, const Json::Value& data
     return json_response(status, body);
 }
 
+/// 创建成功响应：201 Created + {"data": ...}
+inline drogon::HttpResponsePtr created_response(const Json::Value& data)
+{
+    return data_response(201, data);
+}
+
+/// 无返回内容的成功响应：204 No Content（空 body）
+inline drogon::HttpResponsePtr no_content_response()
+{
+    auto resp = drogon::HttpResponse::newHttpResponse();
+    resp->setStatusCode(drogon::k204NoContent);
+    return resp;
+}
+
 /// 失败响应统一包装：{"error": {"code": "...", "message": "...", "details": {...}}}
 inline drogon::HttpResponsePtr error_response(ErrorCode code, const std::string& message,
                                               const Json::Value& details = Json::Value())

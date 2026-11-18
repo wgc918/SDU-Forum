@@ -41,18 +41,20 @@ public:
     /// @throws common::AppException
     LoginResult login(const std::string& user_id, const std::string& password);
 
+    /// @return 新建账号的 public_id
     /// @throws common::AppException
-    bool signUp(const std::string& user_id, const std::string& passward);
+    std::string signUp(const std::string& user_id, const std::string& passward);
 
     /// @throws common::AppException
-    bool logout(const std::string& refresh_token, const std::string access_token);
+    void logout(const std::string& refresh_token, const std::string access_token);
 
     /// @throws common::AppException
     /// @param refreshing 是否更新refresh_token
     LoginResult refresh_token(const std::string& refresh_token, const std::string& access_token,
                               bool refreshing);
 
-    bool logoff(const std::string& public_id, const std::string& refresh_token,
+    /// @throws common::AppException
+    void logoff(const std::string& public_id, const std::string& refresh_token,
                 const std::string access_token);
 
 private:
