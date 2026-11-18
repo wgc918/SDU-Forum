@@ -35,8 +35,7 @@ class AuthService
 {
 public:
     AuthService(repository::AccountRepository& account, repository::BlacklistRepository& blacklist,
-                repository::TokenRepository& token, const infra::JwtConfig& jwt_config,
-                const infra::AuthConfig& auth_config);
+                repository::TokenRepository& token, const infra::JwtConfig& jwt_config);
 
     /// @throws common::AppException
     LoginResult login(const std::string& user_id, const std::string& password);

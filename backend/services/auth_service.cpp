@@ -20,8 +20,7 @@ namespace service
 
 AuthService::AuthService(repository::AccountRepository&   account,
                          repository::BlacklistRepository& blacklist,
-                         repository::TokenRepository& token, const infra::JwtConfig& jwt_config,
-                         const infra::AuthConfig& auth_config)
+                         repository::TokenRepository& token, const infra::JwtConfig& jwt_config)
     : m_account_repo(account),
       m_blacklist_repo(blacklist),
       m_token_repo(token),
@@ -57,8 +56,9 @@ LoginResult AuthService::login(const std::string& user_id, const std::string& pa
                                    "user id or password is incorrect");
     }
 
-    auto access  = m_access_signer.sign(account->public_id, m_access_ttl_seconds);
-    auto refresh = m_refresh_signer.sign(account->public_id, m_refresh_ttl_seconds);
+    auto access = m_access_signer.sign(account->public_id, infra::kUserRole, m_access_ttl_seconds);
+    auto refresh =
+        m_refresh_signer.sign(account->public_id, infra::kUserRole, m_refresh_ttl_seconds);
 
     LOGI("login succeeded: user_id=%s", user_id.c_str());
 
@@ -184,7 +184,7 @@ LoginResult AuthService::refresh_token(const std::string& refresh_token,
     if (refreshing)
     {
         infra::SignedToken new_refresh_token =
-            m_refresh_signer.sign(payload->public_id, m_refresh_ttl_seconds);
+            m_refresh_signer.sign(payload->sub, infra::kUserRole, m_refresh_ttl_seconds);
         repository::TokenRecord refresh_token_record;
         refresh_token_record.token_hash =
             utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token);
@@ -192,13 +192,13 @@ LoginResult AuthService::refresh_token(const std::string& refresh_token,
         // 吊销旧token
         m_token_repo.insert_refresh_token(refresh_token_record);
 
-        result.public_id         = payload->public_id;
+        result.public_id         = payload->sub;
         result.refresh_token     = new_refresh_token.value;
         result.refresh_token_exp = new_refresh_token.expires_at;
     }
 
     infra::SignedToken new_access_token =
-        m_access_signer.sign(payload->public_id, m_access_ttl_seconds);
+        m_access_signer.sign(payload->sub, infra::kUserRole, m_access_ttl_seconds);
     repository::TokenRecord access_token_record;
     access_token_record.token_hash =
         utils::hmac_sha256_base64url(m_token_repo.hash_secret(), access_token);
