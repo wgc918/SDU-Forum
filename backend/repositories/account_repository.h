@@ -4,10 +4,7 @@
 #include <optional>
 #include <string>
 
-namespace dcp
-{
-class ConnectionPool;
-}
+#include "repositories/connection_provider.h"
 
 namespace repository
 {
@@ -25,7 +22,7 @@ struct AccountRecord
 class AccountRepository
 {
 public:
-    AccountRepository(dcp::ConnectionPool& pool, std::string account_table);
+    AccountRepository(IDbConnectionProvider& db_provider, std::string account_table);
 
     /// @throws common::AppException 数据库不可用
     std::optional<AccountRecord> find_account_by_user_id(const std::string& user_id);
@@ -33,11 +30,12 @@ public:
     /// @throws common::AppException 数据库不可用
     bool insert_account_by_user_id(const std::string& user_id, const AccountRecord& account);
 
+    /// @throws common::AppException 数据库不可用
     bool delete_account_by_public_id(const std::string& public_id);
 
 private:
-    dcp::ConnectionPool& m_pool;
-    std::string          m_account_table;
+    IDbConnectionProvider& m_db_provider;
+    std::string            m_account_table;
 };
 
 }  // namespace repository

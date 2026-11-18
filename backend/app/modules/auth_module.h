@@ -26,10 +26,10 @@ public:
     void register_middlewares(drogon::HttpAppFramework& app) override;
 
 private:
-    repository::AccountRepository                      m_account_repository;
-    repository::BlacklistRepository                    m_blacklist_repository;
     repository::PooledDbConnectionProvider             m_db_provider;
     repository::PooledCacheConnectionProvider          m_cache_provider;
+    repository::AccountRepository                      m_account_repository;
+    repository::BlacklistRepository                    m_blacklist_repository;
     repository::TokenRepository                        m_token_repo;
     service::AuthService                               m_service;
     controller::AuthController                         m_controller;

@@ -14,10 +14,10 @@ namespace app::modules
 
 AuthModule::AuthModule(const infra::AppConfig& config, dcp::ConnectionPool* db_pool,
                        rcp::RedisConnectionPool* redis_pool)
-    : m_account_repository(*db_pool, config.auth().account_table),
-      m_blacklist_repository(*db_pool, config.auth().blacklist_table),
-      m_db_provider(*db_pool),
+    : m_db_provider(*db_pool),
       m_cache_provider(*redis_pool),
+      m_account_repository(m_db_provider, config.auth().account_table),
+      m_blacklist_repository(*db_pool, config.auth().blacklist_table),
       m_token_repo(
           m_db_provider, m_cache_provider,
           {config.auth().refresh_token_table, config.jwt().hash_secret,

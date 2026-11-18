@@ -58,13 +58,23 @@
 namespace test_support
 {
 
+/// @brief Stub 结果集按列名返回的行值配置
+struct StubRowValues
+{
+    std::unordered_map<std::string, uint64_t>    uint64_columns;  ///< 无符号整型列
+    std::unordered_map<std::string, int>         int_columns;     ///< 整型列
+    std::unordered_map<std::string, std::string> string_columns;  ///< 字符串列
+};
+
 /// @brief 返回固定行数的结果集替身
 class StubResultSet final : public dcp::IResultSet
 {
 public:
     /// @brief 构造结果集替身
     /// @param row_count 可读取的行数
-    explicit StubResultSet(int row_count = 0) : m_row_count(row_count), m_seen(0)
+    /// @param values 行值配置；为空时所有列返回 0 / 空串
+    explicit StubResultSet(int row_count = 0, std::shared_ptr<const StubRowValues> values = nullptr)
+        : m_row_count(row_count), m_seen(0), m_values(std::move(values))
     {
     }
 
@@ -85,9 +95,12 @@ public:
         return 0;
     }
 
-    int get_int(const std::string&) override
+    int get_int(const std::string& column_name) override
     {
-        return 0;
+        if (!m_values)
+            return 0;
+        auto it = m_values->int_columns.find(column_name);
+        return it == m_values->int_columns.end() ? 0 : it->second;
     }
 
     uint32_t get_uint(const std::string&) override
@@ -100,9 +113,12 @@ public:
         return 0;
     }
 
-    uint64_t get_uint64(const std::string&) override
+    uint64_t get_uint64(const std::string& column_name) override
     {
-        return 0;
+        if (!m_values)
+            return 0;
+        auto it = m_values->uint64_columns.find(column_name);
+        return it == m_values->uint64_columns.end() ? 0 : it->second;
     }
 
     double get_double(const std::string&) override
@@ -115,9 +131,12 @@ public:
         return 0;
     }
 
-    std::string get_string(const std::string&) override
+    std::string get_string(const std::string& column_name) override
     {
-        return "";
+        if (!m_values)
+            return "";
+        auto it = m_values->string_columns.find(column_name);
+        return it == m_values->string_columns.end() ? "" : it->second;
     }
 
     bool get_boolean(const std::string&) override
@@ -176,8 +195,9 @@ public:
     }
 
 private:
-    int m_row_count;  ///< 结果集行数
-    int m_seen;       ///< 已读取行数
+    int                                  m_row_count;  ///< 结果集行数
+    int                                  m_seen;       ///< 已读取行数
+    std::shared_ptr<const StubRowValues> m_values;     ///< 按列名返回的行值
 };
 
 /// @brief Stub 数据库连接的共享状态
@@ -190,7 +210,11 @@ struct StubDbState
     bool return_null_result_set = false;  ///< 查询是否返回空结果集
     bool throw_on_prepare       = false;  ///< 预处理时是否抛出 SQLException
     bool throw_on_set_string    = false;  ///< 绑定字符串时是否抛出 SQLException
+    bool throw_on_set_int       = false;  ///< 绑定整型时是否抛出 SQLException
     bool throw_on_set_datetime  = false;  ///< 绑定时间时是否抛出 SQLException
+
+    /// 查询返回行的列值
+    std::shared_ptr<StubRowValues> row = std::make_shared<StubRowValues>();
 };
 
 /// @brief 提供固定查询与更新结果的数据库连接 Stub
@@ -230,6 +254,12 @@ public:
             throw sql::SQLException("stub string bind failure");
     }
 
+    void set_int(uint16_t, int) override
+    {
+        if (m_state->throw_on_set_int)
+            throw sql::SQLException("stub int bind failure");
+    }
+
     void set_datetime(uint16_t, const std::string&) override
     {
         if (m_state->throw_on_set_datetime)
@@ -242,7 +272,7 @@ public:
             throw sql::SQLException("stub query failure");
         if (m_state->return_null_result_set)
             return nullptr;
-        return std::make_unique<StubResultSet>(m_state->has_row ? 1 : 0);
+        return std::make_unique<StubResultSet>(m_state->has_row ? 1 : 0, m_state->row);
     }
 
     int execute_update() override
@@ -264,6 +294,7 @@ struct SpyDbState
     std::string prepared_sql;         ///< 最近一次预处理的 SQL
 
     std::vector<std::pair<uint16_t, std::string>> string_params;    ///< 字符串绑定参数
+    std::vector<std::pair<uint16_t, int>>         int_params;       ///< 整型绑定参数
     std::vector<std::pair<uint16_t, std::string>> datetime_params;  ///< 时间绑定参数
 
     int prepare_calls = 0;  ///< 预处理次数
@@ -309,6 +340,12 @@ public:
     {
         m_state->events.push_back("bind_string");
         m_state->string_params.emplace_back(index, value);
+    }
+
+    void set_int(uint16_t index, int value) override
+    {
+        m_state->events.push_back("bind_int");
+        m_state->int_params.emplace_back(index, value);
     }
 
     void set_datetime(uint16_t index, const std::string& value) override

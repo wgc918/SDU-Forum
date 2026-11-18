@@ -58,7 +58,7 @@ namespace repository
 
 /// @brief 仓库层所需的最小数据库连接能力
 /// @details
-///     仅暴露 TokenRepository 实际使用的方法，避免仓库直接依赖具体连接池。
+///     仅暴露 Repository 实际使用的方法，避免仓库直接依赖具体连接池。
 class IDbConnection
 {
 public:
@@ -72,6 +72,11 @@ public:
     /// @param index 参数下标，从 1 开始
     /// @param value 参数值
     virtual void set_string(uint16_t index, const std::string& value) = 0;
+
+    /// @brief 绑定整型参数
+    /// @param index 参数下标，从 1 开始
+    /// @param value 参数值
+    virtual void set_int(uint16_t index, int value) = 0;
 
     /// @brief 绑定日期时间参数
     /// @param index 参数下标，从 1 开始

@@ -4,6 +4,7 @@
 >
 > 当前收录：
 >
+> - `repository::AccountRepository`
 > - `repository::TokenRepository`
 > - `utils::timestamp_to_string`
 >
@@ -13,6 +14,7 @@
 
 | 模块 | 测试可执行文件 | CTest 名称 | 用例数 | 使用替身 |
 |---|---|---|---:|---|
+| `repository::AccountRepository` | `test_account_repository` | `AccountRepositoryUnit` | 21 | Stub / Spy / Unavailable |
 | `repository::TokenRepository` | `test_token_repository` | `TokenRepositoryUnit` | 34 | Dummy / Stub / Spy / Mock / Fake / Unavailable |
 | `utils::timestamp_to_string` | `test_utils` | `UtilsUnit` | 1 | 无（纯函数） |
 
@@ -36,6 +38,7 @@ backend/tests/
 │   └── test_doubles.h
 ├── unit/
 │   ├── repositories/
+│   │   ├── test_account_repository.cpp
 │   │   └── test_token_repository.cpp
 │   └── utils/
 │       └── test_utils.cpp
@@ -70,7 +73,7 @@ backend/tests/
 
 | 替身 | 实现接口 | 角色 | 核心能力 |
 |---|---|---|---|
-| `StubResultSet` | `dcp::IResultSet` | Stub | 只控制 `next()` 的行数，列读取返回默认值 |
+| `StubResultSet` | `dcp::IResultSet` | Stub | 控制 `next()` 行数；可按列名返回预设的值或默认值 |
 | `StubDbConnection` | `repository::IDbConnection` | Stub | 固定查询行数、更新行数、异常开关、空结果集 |
 | `SpyDbConnection` | `repository::IDbConnection` | Spy | 记录 SQL、绑定参数、调用次数与事件顺序 |
 | `StubCacheConnection` | `repository::ICacheConnection` | Stub | 固定 `set` 返回值、`get/set` 异常开关 |
@@ -88,17 +91,27 @@ backend/tests/
 
 ### 3.2 `StubResultSet`
 
+`StubRowValues` 是结果集的行值配置：
+
+| 字段 | 类型 | 默认值 | 作用 |
+|---|---|---|---|
+| `uint64_columns` | `unordered_map<string,uint64_t>` | 空 | 按列名返回的无符号整型值 |
+| `int_columns` | `unordered_map<string,int>` | 空 | 按列名返回的整型值 |
+| `string_columns` | `unordered_map<string,string>` | 空 | 按列名返回的字符串值 |
+
 | 成员 | 类型 | 默认值 | 作用 |
 |---|---|---|---|
 | `m_row_count` | `int` | 构造参数，默认 0 | `next()` 返回 true 的行数 |
 | `m_seen` | `int` | 0 | 已读取行数 |
+| `m_values` | `shared_ptr<const StubRowValues>` | `nullptr` | 按列名返回的行值 |
 
 行为：
 
 - `next()`：`m_seen < m_row_count` 时返回 true，并递增 `m_seen`
 - `close()`：空实现
-- 所有 `get_*`、`is_null`：返回 0、空字符串、false
-- 当前只用于“是否存在一行”的判断，不用于列值断言
+- `get_string/get_int/get_uint64(name)`：`m_values` 命中列名时返回预设值，否则返回 0 或空字符串
+- 其余 `get_*`、`is_null`、按索引读取：返回 0、空字符串、false
+- TokenRepository 只用它做“是否存在一行”的判断；AccountRepository 用它断言整行字段映射
 
 ### 3.3 数据库替身
 
@@ -113,14 +126,17 @@ backend/tests/
 | `return_null_result_set` | `bool` | `false` | `execute_query()` 返回 `nullptr` |
 | `throw_on_prepare` | `bool` | `false` | `prepare_statement()` 抛 `sql::SQLException` |
 | `throw_on_set_string` | `bool` | `false` | `set_string()` 抛 `sql::SQLException` |
+| `throw_on_set_int` | `bool` | `false` | `set_int()` 抛 `sql::SQLException` |
 | `throw_on_set_datetime` | `bool` | `false` | `set_datetime()` 抛 `sql::SQLException` |
+| `row` | `shared_ptr<StubRowValues>` | 非空 | 查询返回行的列值，传递给 `StubResultSet` |
 
 #### `StubDbConnection`
 
 - `prepare_statement`：`throw_on_prepare` 为 true 时抛异常
 - `set_string`：`throw_on_set_string` 为 true 时抛异常
+- `set_int`：`throw_on_set_int` 为 true 时抛异常
 - `set_datetime`：`throw_on_set_datetime` 为 true 时抛异常
-- `execute_query`：按 `throw_on_query`、`return_null_result_set`、`has_row` 依次处理
+- `execute_query`：按 `throw_on_query`、`return_null_result_set`、`has_row` 依次处理，返回的 `StubResultSet` 共享 `row` 行值
 - `execute_update`：按 `throw_on_update`、`update_rows` 处理
 - 不记录 SQL 和绑定参数；需要交互断言时使用 `SpyDbConnection`
 
@@ -132,17 +148,18 @@ backend/tests/
 | `update_rows` | `int` | `1` | 更新返回的受影响行数 |
 | `prepared_sql` | `std::string` | 空 | 最近一次预处理的 SQL |
 | `string_params` | `vector<pair<uint16_t,string>>` | 空 | 字符串绑定参数，保留下标与顺序 |
+| `int_params` | `vector<pair<uint16_t,int>>` | 空 | 整型绑定参数，保留下标与顺序 |
 | `datetime_params` | `vector<pair<uint16_t,string>>` | 空 | 时间绑定参数，保留下标与顺序 |
 | `prepare_calls` | `int` | 0 | 预处理次数 |
 | `query_calls` | `int` | 0 | 查询次数 |
 | `update_calls` | `int` | 0 | 更新次数 |
-| `events` | `vector<string>` | 空 | 调用顺序：`prepare`、`bind_string`、`bind_datetime`、`query`、`update` |
+| `events` | `vector<string>` | 空 | 调用顺序：`prepare`、`bind_string`、`bind_int`、`bind_datetime`、`query`、`update` |
 
 #### `SpyDbConnection`
 
 - 每个方法先写入 `events`，再记录对应参数或次数
 - `execute_query()` 不支持空结果集和异常；这些场景使用 `StubDbConnection`
-- `string_params`、`datetime_params` 使用 `vector<pair>`，用于断言绑定下标和顺序
+- `string_params`、`int_params`、`datetime_params` 使用 `vector<pair>`，用于断言绑定下标和顺序
 
 ### 3.4 缓存替身
 
@@ -223,7 +240,7 @@ private:
 - 测试通过 `connection()`、`fake()`、`mock()` 读写 State
 - `Dummy*` 与 `Unavailable*` 没有 State，`acquire()` 直接返回 `nullptr`
 
-### 3.6 替身与用例引用矩阵
+### 3.6 替身与用例引用矩阵（TokenRepository）
 
 | 替身 | 被哪些用例使用 |
 |---|---|
@@ -237,6 +254,16 @@ private:
 | `StubCacheConnection` / `StubCacheProvider` | 6, 21, 22, 23, 34 |
 | `MockCacheConnection` / `MockCacheProvider` | 13, 14, 20, 24, 30, 31 |
 | `StubResultSet` | 由 `StubDbConnection`、`SpyDbConnection` 内部使用 |
+
+### 3.7 替身与用例引用矩阵（AccountRepository）
+
+| 替身 | 被哪些用例使用 |
+|---|---|
+| `StubDbConnection` / `StubDbProvider` | 1, 2, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18, 21 |
+| `SpyDbConnection` / `SpyDbProvider` | 3, 11, 19 |
+| `UnavailableDbProvider` | 4, 12, 20 |
+| `StubResultSet` / `StubRowValues` | 1（由 `StubDbConnection` 内部使用并携带整行字段值） |
+| `Dummy*` / `Mock*` / `Fake*` / `*CacheProvider` | 不使用：AccountRepository 没有缓存依赖 |
 
 ## 4. TokenRepository
 
@@ -432,9 +459,178 @@ flowchart LR
 | 标签 | `fast;unit` |
 | 超时 | 10 秒 |
 
-## 5. Utils
+## 5. AccountRepository
 
-### 5.1 被测单元
+### 5.1 被测单元与依赖
+
+被测文件：
+
+- [account_repository.h](../../repositories/account_repository.h)
+- [account_repository.cpp](../../repositories/account_repository.cpp)
+
+依赖接口：
+
+- [connection_provider.h](../../repositories/connection_provider.h)
+
+构造注入：`IDbConnectionProvider&` + 账号表名。本模块**只依赖数据库**，不持有缓存提供者。
+
+```mermaid
+flowchart LR
+    SUT["AccountRepository"]
+    SUT -->|"构造注入"| DBP["IDbConnectionProvider"]
+    DBP -->|"acquire()"| DBC["IDbConnection"]
+    DBC --> DB1["prepare_statement(sql)"]
+    DBC --> DB2["set_string(index, value)"]
+    DBC --> DB3["set_int(index, value)"]
+    DBC --> DB4["execute_query()"]
+    DBC --> DB5["execute_update()"]
+    DB4 --> RS["IResultSet"]
+    RS --> RS1["next()"]
+    RS --> RS2["get_uint64('id')"]
+    RS --> RS3["get_string('public_id' / 'password_hash' / 'salt')"]
+    RS --> RS4["get_int('iterations')"]
+```
+
+| 依赖接口 | 方法 | 返回/副作用 | 调用点 |
+|---|---|---|---|
+| `IDbConnectionProvider` | `acquire` | 返回连接；无可用连接时为 `nullptr` | 三个方法入口 |
+| `IDbConnection` | `prepare_statement` | 无 | `find_account_by_user_id`、`insert_account_by_user_id`、`delete_account_by_public_id` |
+| `IDbConnection` | `set_string` | 无 | `find_account_by_user_id`（1 个）、`insert_account_by_user_id`（4 个）、`delete_account_by_public_id`（1 个） |
+| `IDbConnection` | `set_int` | 无 | `insert_account_by_user_id`（下标 5：iterations） |
+| `IDbConnection` | `execute_query` | 返回 `IResultSet`；可能为 `nullptr` | `find_account_by_user_id` |
+| `IDbConnection` | `execute_update` | 返回受影响行数 | `insert_account_by_user_id`、`delete_account_by_public_id` |
+| `IResultSet` | `next` | 是否存在下一行 | `find_account_by_user_id` |
+| `IResultSet` | `get_uint64` / `get_string` / `get_int` | 按列名读取字段值 | `find_account_by_user_id` |
+
+`set_datetime` 与结果集的 `close()`、列数、按索引读取方法在本模块中**不被调用**。
+
+### 5.2 行为覆盖矩阵
+
+| 方法 | 正常 | 边界 | 异常 | 交互 |
+|---|---|---|---|---|
+| `find_account_by_user_id` | 查到一行 → 返回完整 record | 无行 → `nullopt` | 连接不可用、prepare/bind/query 异常、结果集为 `nullptr` → DatabaseError | SELECT 列清单、绑定 user_id、1 次 query、不调用 update |
+| `insert_account_by_user_id` | 插入 1 行 → true | 0 行 → false | 连接不可用、prepare/set_string/set_int/update 异常 → DatabaseError | INSERT 五参数下标与顺序、不调用 query |
+| `delete_account_by_public_id` | 删除 1 行 → true | 0 行 → false | 连接不可用、prepare/bind/update 异常 → DatabaseError | DELETE 语句、绑定 public_id |
+| 输入校验（空 user_id / 空 public_id） | — | 不测：校验在 `AuthService`，仓库只透传 | — | — |
+| 连接归还 | — | 不测：由 `PooledDbConnectionProvider` 的 RAII 守卫负责 | — | — |
+| 缓存读写 | — | 不测：本模块无缓存依赖 | — | — |
+
+### 5.3 用例目录
+
+> 编号是本文档的设计编号，与 [test_account_repository.cpp](../unit/repositories/test_account_repository.cpp) 中的 `TEST_CASE` 一一对应；下表按方法分组展示。
+
+#### 账号查询
+
+| # | 用例名 | 替身配置 | 断言 |
+|---|---|---|---|
+| 1 | `find_account_by_user_id returns record when row exists` | StubDb，`has_row=true`，`row` 预置 id/public_id/hash/salt/iterations | 返回 record，五个字段与预置行一致 |
+| 2 | `find_account_by_user_id returns nullopt when no row` | StubDb，`has_row=false` | 返回 `nullopt` |
+| 3 | `find_account_by_user_id binds user id and selects credential columns` | SpyDb，`has_row=true` | SELECT SQL 正确；字符串参数下标 1、值 `alice`；无整型参数；`query_calls=1`；`update_calls=0`；事件 `prepare → bind_string → query` |
+| 4 | `find_account_by_user_id throws DatabaseError when db unavailable` | UnavailableDb | 抛 DatabaseError |
+| 5 | `find_account_by_user_id throws DatabaseError on sql failure` | StubDb，`throw_on_query=true` | 抛 DatabaseError |
+| 6 | `find_account_by_user_id throws DatabaseError when prepare fails` | StubDb，`throw_on_prepare=true` | 抛 DatabaseError |
+| 7 | `find_account_by_user_id throws DatabaseError when binding fails` | StubDb，`throw_on_set_string=true` | 抛 DatabaseError |
+| 8 | `find_account_by_user_id throws DatabaseError when query result is null` | StubDb，`return_null_result_set=true` | 抛 DatabaseError |
+
+#### 账号写入
+
+| # | 用例名 | 替身配置 | 断言 |
+|---|---|---|---|
+| 9 | `insert_account_by_user_id returns true when row inserted` | StubDb，`update_rows=1` | 返回 true |
+| 10 | `insert_account_by_user_id returns false when no row inserted` | StubDb，`update_rows=0` | 返回 false |
+| 11 | `insert_account_by_user_id binds public id user id hash salt iterations` | SpyDb，`update_rows=1` | INSERT SQL 正确；字符串参数 4 条（下标 1–4：public_id/user_id/hash/salt）；整型参数 1 条（下标 5：iterations）；`query_calls=0`；`update_calls=1`；事件 `prepare → bind_string×4 → bind_int → update` |
+| 12 | `insert_account_by_user_id throws DatabaseError when db unavailable` | UnavailableDb | 抛 DatabaseError |
+| 13 | `insert_account_by_user_id throws DatabaseError on sql failure` | StubDb，`throw_on_update=true` | 抛 DatabaseError |
+| 14 | `insert_account_by_user_id throws DatabaseError when prepare fails` | StubDb，`throw_on_prepare=true` | 抛 DatabaseError |
+| 15 | `insert_account_by_user_id throws DatabaseError when string binding fails` | StubDb，`throw_on_set_string=true` | 抛 DatabaseError |
+| 16 | `insert_account_by_user_id throws DatabaseError when iteration binding fails` | StubDb，`throw_on_set_int=true` | 抛 DatabaseError |
+
+#### 账号删除
+
+| # | 用例名 | 替身配置 | 断言 |
+|---|---|---|---|
+| 17 | `delete_account_by_public_id returns true when row deleted` | StubDb，`update_rows=1` | 返回 true |
+| 18 | `delete_account_by_public_id returns false when no row deleted` | StubDb，`update_rows=0` | 返回 false |
+| 19 | `delete_account_by_public_id binds public id and targets account table` | SpyDb，`update_rows=1` | DELETE SQL 正确；字符串参数下标 1、值 `usr_alice`；`query_calls=0`；`update_calls=1`；事件 `prepare → bind_string → update` |
+| 20 | `delete_account_by_public_id throws DatabaseError when db unavailable` | UnavailableDb | 抛 DatabaseError |
+| 21 | `delete_account_by_public_id throws DatabaseError on sql failure` | StubDb，`throw_on_update=true` | 抛 DatabaseError |
+
+### 5.4 交互契约
+
+#### `find_account_by_user_id`
+
+- SQL：`SELECT id, public_id, password_hash, salt, iterations FROM account_it WHERE user_id = ?`
+- 字符串参数：下标 1，值 `user_id`
+- 事件顺序：`prepare → bind_string → query`
+- 结果集为空或 `next()` 返回 false：返回 `nullopt`
+- 命中一行：`id` 用 `get_uint64`，`public_id`/`password_hash`/`salt` 用 `get_string`，`iterations` 用 `get_int`
+
+#### `insert_account_by_user_id`
+
+- SQL：`INSERT INTO account_it (public_id,user_id,password_hash,salt,iterations) VALUES(?,?,?,?,?)`
+- 字符串参数：下标 1 `public_id`、下标 2 `user_id`、下标 3 `password_hash`、下标 4 `salt`
+- 整型参数：下标 5 `iterations`
+- 事件顺序：`prepare → bind_string ×4 → bind_int → update`
+- 返回：`execute_update()` 行数为 0 时 false，其余为 true
+- 查重不在此处进行，由业务层负责
+
+#### `delete_account_by_public_id`
+
+- SQL：`DELETE FROM account_it WHERE public_id=?`
+- 字符串参数：下标 1，值 `public_id`
+- 事件顺序：`prepare → bind_string → update`
+- 返回：受影响行数大于 0 时为 true
+
+### 5.5 错误映射
+
+| 场景 | 错误码/结果 |
+|---|---|
+| `acquire()` 返回 `nullptr` | `common::ErrorCode::DatabaseError` |
+| `prepare_statement` / `set_string` / `set_int` / `execute_update` 抛 `sql::SQLException` | `common::ErrorCode::DatabaseError` |
+| `execute_query()` 抛 `sql::SQLException` | `common::ErrorCode::DatabaseError` |
+| `execute_query()` 返回 `nullptr` | `common::ErrorCode::DatabaseError` |
+| 查询无行 | 返回 `std::nullopt`，不抛异常 |
+| 插入/删除 0 行 | 返回 false，不抛异常 |
+
+### 5.6 测试配置与辅助函数
+
+`kAccountTable`：`account_it`
+
+`make_account()` 返回：
+
+| 字段 | 值 |
+|---|---|
+| `id` | 0（插入流程不读取） |
+| `public_id` | `usr_alice` |
+| `password_hash` | `hash-value` |
+| `salt` | `salt-value` |
+| `iterations` | 120000 |
+
+`throws_with_code(callable, expected)`：与 TokenRepository 共用同一实现，捕获 `common::AppException` 并比较 `code()`。
+
+### 5.7 测试文件与 CMake
+
+| 项 | 值 |
+|---|---|
+| 源文件 | `unit/repositories/test_account_repository.cpp` |
+| 公共 main | `support/test_main.cpp` |
+| 链接库 | `sdu_app` |
+| 可执行文件 | `test_account_repository` |
+| CTest 名称 | `AccountRepositoryUnit` |
+| 标签 | `fast;unit` |
+| 超时 | 10 秒 |
+
+### 5.8 接缝说明
+
+AccountRepository 原先直接持有 `dcp::ConnectionPool&`，无法注入替身。落地本模块测试时按“接缝优先”原则做了最小改造：
+
+- `IDbConnection` 增加 `set_int`，`PooledDbConnection` 转发到 `IDatabaseConnection::set_int`
+- `AccountRepository` 构造参数改为 `IDbConnectionProvider&`，与 `TokenRepository` 保持一致
+- `AuthModule` 调整成员声明顺序，先构造 provider 再构造仓库
+
+## 6. Utils
+
+### 6.1 被测单元
 
 - 源文件：[utils.cpp](../../utils/utils.cpp)
 - 头文件：[utils.h](../../utils/utils.h)
@@ -442,7 +638,7 @@ flowchart LR
 
 该函数是纯函数，无外部依赖，不使用任何测试替身。
 
-### 5.2 用例目录
+### 6.2 用例目录
 
 | # | 用例名 | 输入 | 断言 |
 |---|---|---|---|
@@ -450,7 +646,7 @@ flowchart LR
 | | | `1700000000` | `"2023-11-14 22:13:20"` |
 | | | `2147483647` | `"2038-01-19 03:14:07"` |
 
-### 5.3 测试文件与 CMake
+### 6.3 测试文件与 CMake
 
 | 项 | 值 |
 |---|---|
@@ -462,9 +658,9 @@ flowchart LR
 | 标签 | `fast;unit` |
 | 超时 | 10 秒 |
 
-## 6. 新增模块接入流程
+## 7. 新增模块接入流程
 
-### 6.1 五步设计法
+### 7.1 五步设计法
 
 1. **找接缝**：确认被测单元依赖的是接口，而不是具体连接池/客户端。
 2. **画依赖地形**：列出依赖接口的每个方法、返回值、副作用、调用点。
@@ -481,14 +677,14 @@ flowchart LR
    - 每个异常开关至少被一个用例配置
    - 用例按 `<方法> <行为> <场景>` 命名
 
-### 6.2 替身复用与扩展规则
+### 7.2 替身复用与扩展规则
 
 - 相同接口的 State、Connection、Provider 优先复用，不重复定义
 - 接口新增方法时，扩展现有接口与替身，而不是新建一套
 - 同一接口的 Stub/Spy/Fake/Mock 全部保留，因为语义不可互替
 - 新增 State 字段时必须同步更新本文档第 3 节
 
-### 6.3 CMake 注册模板
+### 7.3 CMake 注册模板
 
 ```cmake
 add_executable(test_<unit>
@@ -515,7 +711,7 @@ set_tests_properties(<Unit>Unit PROPERTIES
 )
 ```
 
-### 6.4 文档追加模板
+### 7.4 文档追加模板
 
 新增模块时，在本文档追加：
 
@@ -543,7 +739,7 @@ set_tests_properties(<Unit>Unit PROPERTIES
 - 源文件 / 可执行文件 / CTest 名称 / 标签 / 超时
 ```
 
-## 7. 维护检查清单
+## 8. 维护检查清单
 
 新增或修改用例后，逐项检查：
 
@@ -559,10 +755,11 @@ set_tests_properties(<Unit>Unit PROPERTIES
 - [ ] CMake 已注册新测试目标
 - [ ] `ctest -L unit` 全部通过
 
-## 8. 变更记录
+## 9. 变更记录
 
 | 日期 | 变更 |
 |---|---|
 | 2026-11-16 | 初版：收录 `TokenRepository` 32 个用例、`Utils` 1 个用例，以及全部测试替身设计 |
 | 2026-11-17 | 缓存降级策略调整：缓存连接不可用时 `find_refresh_token` 降级 DB，`find_access_token` / `insert_access_token` 返回 false；缓存回写异常不再抛错；用例数更新为 33 |
 | 2026-11-17 | `find_refresh_token` 的缓存 `get` 运行时异常也降级 DB：原“抛 RedisError”用例替换为“降级 DB 命中”和“降级 DB 未命中”两个用例；TokenRepository 不再有 RedisError 抛出路径；用例数更新为 34 |
+| 2026-11-18 | 新增 `AccountRepository` 章节（21 个用例）：含依赖地形、行为矩阵、用例目录、交互契约、错误映射与接缝说明；`StubResultSet` 支持 `StubRowValues` 行值，`Stub/Spy` 支持 `set_int`；章节号顺延（Utils 为第 6 节，变更记录为第 9 节） |

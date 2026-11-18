@@ -67,6 +67,11 @@ public:
         m_guard->set_string(index, value);
     }
 
+    void set_int(uint16_t index, int value) override
+    {
+        m_guard->set_int(index, value);
+    }
+
     void set_datetime(uint16_t index, const std::string& value) override
     {
         m_guard->set_datetime(index, value);
