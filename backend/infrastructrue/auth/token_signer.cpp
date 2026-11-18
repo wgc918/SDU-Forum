@@ -1,5 +1,4 @@
 #include "auth/token_signer.h"
-#include "codec/base64url.h"
 
 #include <json/json.h>
 #include <openssl/crypto.h>
@@ -11,6 +10,8 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include "codec/base64url.h"
 
 namespace infra
 {
@@ -75,7 +76,8 @@ TokenSigner::TokenSigner(std::string secret, std::string issuer)
 {
 }
 
-SignedToken TokenSigner::sign(const std::string& public_id, int64_t ttl_seconds) const
+SignedToken TokenSigner::sign(const std::string& sub, const std::string& role,
+                              int64_t ttl_seconds) const
 {
     Json::Value header;
     header["alg"] = kAlgorithm;
@@ -85,10 +87,11 @@ SignedToken TokenSigner::sign(const std::string& public_id, int64_t ttl_seconds)
     const int64_t expires = now + ttl_seconds;
 
     Json::Value payload;
-    payload["iss"]       = m_issuer;
-    payload["iat"]       = Json::Int64(now);
-    payload["exp"]       = Json::Int64(expires);
-    payload["public_id"] = public_id;
+    payload["iss"]  = m_issuer;
+    payload["iat"]  = Json::Int64(now);
+    payload["exp"]  = Json::Int64(expires);
+    payload["sub"]  = sub;
+    payload["role"] = role;
 
     std::string unsigned_token =
         base64_url_encode(compact_json(header)) + "." + base64_url_encode(compact_json(payload));
@@ -145,7 +148,9 @@ std::optional<TokenPayload> TokenSigner::verify(const std::string& token) const
         return std::nullopt;
     if (!payload["iss"].isString() || payload["iss"].asString() != m_issuer)
         return std::nullopt;
-    if (!payload["public_id"].isString() || payload["public_id"].asString().empty())
+    if (!payload["sub"].isString() || payload["sub"].asString().empty())
+        return std::nullopt;
+    if (!payload["role"].isString() || payload["role"].asString().empty())
         return std::nullopt;
     if (!is_numeric(payload["exp"]))
         return std::nullopt;
@@ -155,7 +160,8 @@ std::optional<TokenPayload> TokenSigner::verify(const std::string& token) const
         return std::nullopt;
 
     TokenPayload result;
-    result.public_id  = payload["public_id"].asString();
+    result.sub        = payload["sub"].asString();
+    result.role       = payload["role"].asString();
     result.issuer     = payload["iss"].asString();
     result.expires_at = expires_at;
     result.issued_at  = is_numeric(payload["iat"]) ? payload["iat"].asInt64() : 0;

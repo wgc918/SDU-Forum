@@ -15,8 +15,9 @@ struct SignedToken
 
 struct TokenPayload
 {
-    std::string public_id;
+    std::string sub;
     std::string issuer;
+    std::string role;
     int64_t     issued_at  = 0;
     int64_t     expires_at = 0;
 };
@@ -27,7 +28,7 @@ class TokenSigner
 public:
     TokenSigner(std::string secret, std::string issuer);
     // 后续引入后台管理api时，要在token中添加role进行区分权限
-    SignedToken sign(const std::string& public_id, int64_t ttl_seconds) const;
+    SignedToken sign(const std::string& sub, const std::string& role, int64_t ttl_seconds) const;
 
     /// 校验签名、issuer 与有效期；任何一项不通过都返回 std::nullopt
     std::optional<TokenPayload> verify(const std::string& token) const;
