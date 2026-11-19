@@ -53,4 +53,9 @@ void AdminRoleMiddle::invoke(const drogon::HttpRequestPtr&    req,
 {
     RoleMiddleware::invoke(req, std::move(next_cb), std::move(mcb));
 }
+
+std::string current_role(const drogon::HttpRequestPtr& req)
+{
+    return req->attributes()->get<std::string>(kRoleAttribute);
+}
 }  // namespace middleware

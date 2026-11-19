@@ -75,7 +75,7 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
     }
 
     req->attributes()->insert(kUserIdAttribute, payload->sub);
-    req->attributes()->insert(kRoleAttribute, payload->role);
+    req->attributes()->insert(kUserRoleAttribute, payload->role);
     next_cb(std::move(mcb));
 }
 
@@ -108,11 +108,6 @@ void RefreshAuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
 std::string current_public_id(const drogon::HttpRequestPtr& req)
 {
     return req->attributes()->get<std::string>(kUserIdAttribute);
-}
-
-std::string current_role(const drogon::HttpRequestPtr& req)
-{
-    return req->attributes()->get<std::string>(kRoleAttribute);
 }
 
 }  // namespace middleware

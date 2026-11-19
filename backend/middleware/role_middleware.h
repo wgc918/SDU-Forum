@@ -14,6 +14,8 @@
 namespace middleware
 {
 
+inline constexpr char kRoleAttribute[] = "role";
+
 class RoleMiddleware
 {
 public:
@@ -41,4 +43,6 @@ public:
     void invoke(const drogon::HttpRequestPtr& req, drogon::MiddlewareNextCallback&& next_cb,
                 drogon::MiddlewareCallback&& mcb) override;
 };
+
+std::string current_role(const drogon::HttpRequestPtr& req);
 }  // namespace middleware
