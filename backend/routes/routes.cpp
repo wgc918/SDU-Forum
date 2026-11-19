@@ -5,8 +5,11 @@
 #include <json/json.h>
 
 #include "common/api_response.h"
+#include "controllers/admin/auth_controller.h"
 #include "controllers/auth_controller.h"
+#include "middleware/admin_auth_middleware.h"
 #include "middleware/auth_middleware.h"
+#include "middleware/role_middleware.h"
 
 namespace routes
 {
@@ -53,6 +56,31 @@ void register_auth_routes(drogon::HttpAppFramework& app, controller::AuthControl
                             callback(common::data_response(200, data));
                         },
                         {drogon::Get, middleware::AccessAuthMiddleware::classTypeName()});
+}
+
+void register_admin_auth_routes(drogon::HttpAppFramework&               app,
+                                admin::controller::AdminAuthController& controller)
+{
+    app.registerHandler(
+        "/admin/api/v1/auth/login",
+        [&controller](const drogon::HttpRequestPtr&                         req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback)
+        { controller.login(req, std::move(callback)); },
+        {drogon::Post});
+    app.registerHandler(
+        "/admin/api/v1/auth/logout",
+        [&controller](const drogon::HttpRequestPtr&                         req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback)
+        { controller.logout(req, std::move(callback)); },
+        {drogon::Post, middleware::AdminAccessAuthMiddleware::classTypeName(),
+         middleware::AdminRoleMiddle::classTypeName()});
+    app.registerHandler(
+        "/admin/api/v1/auth/refresh-token",
+        [&controller](const drogon::HttpRequestPtr&                         req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback)
+        { controller.refresh_token(req, std::move(callback)); },
+        {drogon::Post, middleware::AdminRefreshAuthMiddleware::classTypeName(),
+         middleware::AdminRoleMiddle::classTypeName()});
 }
 
 }  // namespace routes

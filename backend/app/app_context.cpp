@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "app/modules/admin/auth_module.h"
 #include "app/modules/auth_module.h"
 #include "config/app_config.h"
 #include "conn-pool/ConnectionPool.h"
@@ -19,7 +20,9 @@ AppContext::AppContext(const infra::AppConfig& config)
     : m_config(config),
       m_db_pool(&dcp::ConnectionPool::instance(dcp::DatabaseType::MySQL)),
       m_redis_pool(&rcp::RedisConnectionPool::instance()),
-      m_auth_module(std::make_shared<modules::AuthModule>(m_config, m_db_pool, m_redis_pool))
+      m_auth_module(std::make_shared<modules::AuthModule>(m_config, m_db_pool, m_redis_pool)),
+      m_admin_auth_module(
+          std::make_shared<modules::AdminAuthModule>(m_config, m_db_pool, m_redis_pool))
 {
 }
 
@@ -62,6 +65,7 @@ void AppContext::init_infrastructure()
 void AppContext::register_routes()
 {
     m_auth_module->register_routes(drogon::app());
+    m_admin_auth_module->register_routes(drogon::app());
     LOGI("routes registered");
 }
 
@@ -69,6 +73,7 @@ void AppContext::register_middlewares()
 {
     middleware::install_exception_handler();
     m_auth_module->register_middlewares(drogon::app());
+    m_admin_auth_module->register_middlewares(drogon::app());
     LOGI("middlewares registered");
 }
 
