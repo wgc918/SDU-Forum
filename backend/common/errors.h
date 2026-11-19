@@ -21,6 +21,7 @@ enum class ErrorCode
     DatabaseError,
     InternalError,
     RedisError,
+    Forbidden,
 };
 
 inline const char* error_code_name(ErrorCode code) noexcept
@@ -46,7 +47,9 @@ inline const char* error_code_name(ErrorCode code) noexcept
         case ErrorCode::InternalError:
             return "INTERNAL_ERROR";
         case ErrorCode::RedisError:
-            return " REDISE_RROR";
+            return " REDIS_ERROR";
+        case ErrorCode::Forbidden:
+            return "FORBIDDEN";
     }
     return "INTERNAL_ERROR";
 }
@@ -62,6 +65,7 @@ inline int http_status(ErrorCode code) noexcept
         case ErrorCode::InvalidCredentials:
             return 401;
         case ErrorCode::AccountBanned:
+        case ErrorCode::Forbidden:
             return 403;
         case ErrorCode::NotFound:
             return 404;
