@@ -169,11 +169,11 @@ void AuthService::logout(const std::string& refresh_token, const std::string acc
 LoginResult AuthService::refresh_token(const std::string& refresh_token,
                                        const std::string& access_token, bool refreshing)
 {
-    // 先判断 refresh_token 是否已被吊销
-    auto token = m_token_repo.find_refresh_token(
-        utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token));
-    if (token)
-        throw common::AppException(common::ErrorCode::Unauthorized, "old refresh token");
+    // 先判断 refresh_token 是否已被吊销(已在中间件判断)
+    // auto token = m_token_repo.find_refresh_token(
+    //     utils::hmac_sha256_base64url(m_token_repo.hash_secret(), refresh_token));
+    // if (token)
+    //     throw common::AppException(common::ErrorCode::Unauthorized, "old refresh token");
 
     auto payload = m_refresh_signer.verify(refresh_token);
     if (!payload)
