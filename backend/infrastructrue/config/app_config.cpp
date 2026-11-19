@@ -145,10 +145,13 @@ void AppConfig::load(const std::string& path)
     m_jwt.issuer               = string_of(auth, "issuer", "SDU_Forum");
     m_jwt.access_secret        = string_of(auth, "access_jwt_secret", "");
     m_jwt.refresh_secret       = string_of(auth, "refresh_jwt_secret", "");
+    m_jwt.admin_access_secret  = string_of(auth, "admin_access_secret", "");
+    m_jwt.admin_refresh_secret = string_of(auth, "admin_refresh_secret", "");
     m_jwt.access_token_minutes = int_of(auth, "access_token_minutes", 60);
     m_jwt.refresh_token_hours  = int_of(auth, "refresh_token_hours", 168);
     m_auth.account_table       = string_of(auth, "account_table", m_auth.account_table);
     m_auth.blacklist_table     = string_of(auth, "blacklist_table", m_auth.blacklist_table);
+    m_auth.admin_account_table = string_of(auth, "admin_account_able", m_auth.admin_account_table);
 
     const auto& redis = section_of("redis");
     m_redis.host      = string_of(redis, "host", m_redis.host);

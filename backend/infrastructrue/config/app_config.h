@@ -50,6 +50,8 @@ struct JwtConfig
     std::string issuer;
     std::string access_secret;
     std::string refresh_secret;
+    std::string admin_access_secret;
+    std::string admin_refresh_secret;
     std::string hash_secret          = "dfacadgafeqwfqvab";  // token存储时转hash使用
     int         access_token_minutes = 60;
     int         refresh_token_hours  = 168;
@@ -70,6 +72,7 @@ struct AuthConfig
     std::string account_table       = "account";
     std::string blacklist_table     = "blacklist";
     std::string refresh_token_table = "refresh_tokens";
+    std::string admin_account_table = "admin_account";
 };
 
 /// 进程级配置，启动时从 INI 文件加载一次
