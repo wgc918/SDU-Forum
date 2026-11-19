@@ -5,19 +5,19 @@
 
 #include <functional>
 
-namespace service
+namespace admin::service
 {
-class AuthService;
+class AdminAuthService;
 }
 
-namespace manager::controller
+namespace admin::controller
 {
 
 /// HTTP 适配层：解析请求、参数校验、调用 Service、返回统一响应
-class AuthController
+class AdminAuthController
 {
 public:
-    explicit AuthController(service::AuthService& auth_service);
+    explicit AdminAuthController(admin::service::AdminAuthService& auth_service);
 
     void login(const drogon::HttpRequestPtr&                         req,
                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
@@ -29,6 +29,6 @@ public:
                        std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 
 private:
-    service::AuthService& m_auth_service;
+    service::AdminAuthService& m_auth_service;
 };
 }  // namespace manager::controller
