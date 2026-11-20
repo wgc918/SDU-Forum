@@ -14,6 +14,6 @@ public:
 
     virtual void register_routes(drogon::HttpAppFramework& app) = 0;
 
-    virtual void register_middlewares(drogon::HttpAppFramework& app) {};
+    virtual void register_middlewares(drogon::HttpAppFramework& app) = 0;
 };
 }  // namespace app
