@@ -4,7 +4,6 @@
 #include "common/api_response.h"
 #include "common/errors.h"
 #include "log.h"
-#include "middleware/auth_middleware.h"
 
 namespace middleware
 {

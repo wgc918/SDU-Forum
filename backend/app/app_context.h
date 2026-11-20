@@ -6,9 +6,7 @@
 #include "config/app_config.h"
 #include "modules/auth_module.h"
 #include "redis-pool/RedisConnectionPool.h"
-#include "repositories/account_repository.h"
 #include "repositories/blacklist_repository.h"
-#include "services/auth_service.h"
 
 namespace dcp
 {
@@ -47,8 +45,8 @@ private:
     dcp::ConnectionPool*      m_db_pool;
     rcp::RedisConnectionPool* m_redis_pool;
 
-    std::shared_ptr<modules::AuthModule> m_auth_module;
-    std::shared_ptr<modules::AdminAuthModule>m_admin_auth_module;
+    std::shared_ptr<modules::AuthModule>      m_auth_module;
+    std::shared_ptr<modules::AdminAuthModule> m_admin_auth_module;
 };
 
 }  // namespace app

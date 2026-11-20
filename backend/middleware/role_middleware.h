@@ -4,12 +4,7 @@
 #include <drogon/HttpRequest.h>
 #include <drogon/drogon_callbacks.h>
 
-#include <functional>
 #include <string>
-
-#include "auth/token_signer.h"
-#include "config/app_config.h"
-#include "repositories/token_repository.h"
 
 namespace middleware
 {

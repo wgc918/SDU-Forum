@@ -10,7 +10,6 @@
 #include "config/app_config.h"
 #include "log.h"
 #include "repositories/account_repository.h"
-#include "repositories/repository.h"
 #include "repositories/token_repository.h"
 #include "security/password_hasher.h"
 #include "utils/utils.h"
