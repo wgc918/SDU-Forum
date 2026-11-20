@@ -4,7 +4,8 @@
 #include <drogon/drogon.h>
 #include <json/json.h>
 
-#include "common/api_response.h"
+#include <string>
+
 #include "controllers/admin/auth_controller.h"
 #include "controllers/auth_controller.h"
 #include "middleware/admin_auth_middleware.h"
@@ -16,66 +17,69 @@ namespace routes
 
 void register_auth_routes(drogon::HttpAppFramework& app, controller::AuthController& controller)
 {
+    const std::string base_url = "/sdu_forum/api/v1/auth";
+
     app.registerHandler(
-        "/sdu_forum/api/v1/auth/login",
+        base_url + "/login",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.login(req, std::move(callback)); },
         {drogon::Post});
+
     app.registerHandler(
-        "/sdu_forum/api/v1/auth/sign_up",
+        base_url + "/sign-up",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.signUp(req, std::move(callback)); },
         {drogon::Post});
+
     app.registerHandler(
-        "/sdu_forum/api/v1/auth/logout",
+        base_url + "/logout",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.logout(req, std::move(callback)); },
-        {drogon::Post, middleware::AccessAuthMiddleware::classTypeName()});
+        {drogon::Post, middleware::AccessAuthMiddleware::classTypeName(),
+         middleware::UserRoleMiddleware::classTypeName()});
+
     app.registerHandler(
-        "/sdu_forum/api/v1/auth/refresh-token",
+        base_url + "/refresh-token",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.refresh_token(req, std::move(callback)); },
-        {drogon::Post, middleware::RefreshAuthMiddleware::classTypeName()});
+        {drogon::Post, middleware::RefreshAuthMiddleware::classTypeName(),
+         middleware::UserRoleMiddleware::classTypeName()});
+
     app.registerHandler(
-        "/sdu_forum/api/v1/auth/logoff",
+        base_url + "/logoff",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.logoff(req, std::move(callback)); },
-        {drogon::Delete, middleware::AccessAuthMiddleware::classTypeName()});
-    // 受保护路由示例：中间件通过类名挂载到具体路由，供后续业务路由复制
-    app.registerHandler("/sdu_forum/api/v1/auth/me",
-                        [](const drogon::HttpRequestPtr&                         req,
-                           std::function<void(const drogon::HttpResponsePtr&)>&& callback)
-                        {
-                            Json::Value data;
-                            data["public_id"] = middleware::current_public_id(req);
-                            callback(common::data_response(200, data));
-                        },
-                        {drogon::Get, middleware::AccessAuthMiddleware::classTypeName()});
+        {drogon::Delete, middleware::AccessAuthMiddleware::classTypeName(),
+         middleware::UserRoleMiddleware::classTypeName()});
 }
 
 void register_admin_auth_routes(drogon::HttpAppFramework&               app,
                                 admin::controller::AdminAuthController& controller)
 {
+    const std::string base_url = "/admin/api/v1/auth";
+
     app.registerHandler(
-        "/admin/api/v1/auth/login",
+        base_url + "/login",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.login(req, std::move(callback)); },
         {drogon::Post});
+
     app.registerHandler(
-        "/admin/api/v1/auth/logout",
+        base_url + "/logout",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.logout(req, std::move(callback)); },
         {drogon::Post, middleware::AdminAccessAuthMiddleware::classTypeName(),
          middleware::AdminRoleMiddle::classTypeName()});
+
     app.registerHandler(
-        "/admin/api/v1/auth/refresh-token",
+        base_url + "/refresh-token",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.refresh_token(req, std::move(callback)); },
