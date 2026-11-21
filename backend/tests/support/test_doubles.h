@@ -302,6 +302,9 @@ struct SpyDbState
     int update_calls  = 0;  ///< 更新次数
 
     std::vector<std::string> events;  ///< 调用顺序
+
+    /// 查询返回行的列值
+    std::shared_ptr<StubRowValues> row = std::make_shared<StubRowValues>();
 };
 
 /// @brief 记录调用参数与次数的数据库连接 Spy
@@ -358,7 +361,7 @@ public:
     {
         m_state->events.push_back("query");
         ++m_state->query_calls;
-        return std::make_unique<StubResultSet>(m_state->has_row ? 1 : 0);
+        return std::make_unique<StubResultSet>(m_state->has_row ? 1 : 0, m_state->row);
     }
 
     int execute_update() override

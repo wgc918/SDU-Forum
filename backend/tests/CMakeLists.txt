@@ -102,3 +102,29 @@ set_tests_properties(UtilsUnit PROPERTIES
     TIMEOUT 10
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
+
+# ---------------------------------------------------------------------------
+# AuthService 单元测试：快速、无外部依赖
+# ---------------------------------------------------------------------------
+add_executable(test_auth_service
+    support/test_main.cpp
+    unit/services/test_auth_service.cpp
+)
+
+target_include_directories(test_auth_service PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+
+target_include_directories(test_auth_service SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
+
+target_link_libraries(test_auth_service PRIVATE sdu_app)
+
+add_test(NAME AuthServiceUnit COMMAND test_auth_service)
+set_tests_properties(AuthServiceUnit PROPERTIES
+    LABELS "fast;unit"
+    TIMEOUT 60
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)

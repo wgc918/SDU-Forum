@@ -6,6 +6,7 @@
 >
 > - `repository::AccountRepository`
 > - `repository::TokenRepository`
+> - `service::AuthService`
 > - `utils::timestamp_to_string`
 >
 > 后续新增模块时，在对应位置追加模块章节，并更新第 1 节的模块索引。
@@ -16,12 +17,13 @@
 |---|---|---|---:|---|
 | `repository::AccountRepository` | `test_account_repository` | `AccountRepositoryUnit` | 21 | Stub / Spy / Unavailable |
 | `repository::TokenRepository` | `test_token_repository` | `TokenRepositoryUnit` | 34 | Dummy / Stub / Spy / Mock / Fake / Unavailable |
+| `service::AuthService` | `test_auth_service` | `AuthServiceUnit` | 34 | Dummy / Stub / Spy / Fake / Unavailable |
 | `utils::timestamp_to_string` | `test_utils` | `UtilsUnit` | 1 | 无（纯函数） |
 
 - 测试框架：doctest 2.4.11
 - 构建系统：CMake + CTest
 - 单元测试标签：`fast;unit`
-- 默认超时：10 秒
+- 默认超时：10 秒（`AuthServiceUnit` 因 PBKDF2 默认轮次取 60 秒）
 - 单元测试不得访问 MySQL、Redis、网络
 
 ## 2. 测试框架约定
@@ -40,6 +42,8 @@ backend/tests/
 │   ├── repositories/
 │   │   ├── test_account_repository.cpp
 │   │   └── test_token_repository.cpp
+│   ├── services/
+│   │   └── test_auth_service.cpp
 │   └── utils/
 │       └── test_utils.cpp
 └── docs/
@@ -154,11 +158,12 @@ backend/tests/
 | `query_calls` | `int` | 0 | 查询次数 |
 | `update_calls` | `int` | 0 | 更新次数 |
 | `events` | `vector<string>` | 空 | 调用顺序：`prepare`、`bind_string`、`bind_int`、`bind_datetime`、`query`、`update` |
+| `row` | `shared_ptr<StubRowValues>` | 非空 | 查询返回行的列值，传递给 `StubResultSet` |
 
 #### `SpyDbConnection`
 
 - 每个方法先写入 `events`，再记录对应参数或次数
-- `execute_query()` 不支持空结果集和异常；这些场景使用 `StubDbConnection`
+- `execute_query()` 返回的 `StubResultSet` 共享 `row` 行值，但**不支持空结果集和查询异常**；这些场景使用 `StubDbConnection`
 - `string_params`、`int_params`、`datetime_params` 使用 `vector<pair>`，用于断言绑定下标和顺序
 
 ### 3.4 缓存替身
@@ -264,6 +269,19 @@ private:
 | `UnavailableDbProvider` | 4, 12, 20 |
 | `StubResultSet` / `StubRowValues` | 1（由 `StubDbConnection` 内部使用并携带整行字段值） |
 | `Dummy*` / `Mock*` / `Fake*` / `*CacheProvider` | 不使用：AccountRepository 没有缓存依赖 |
+
+### 3.8 替身与用例引用矩阵（AuthService）
+
+| 替身 | 被哪些用例使用 |
+|---|---|
+| `StubDbConnection` / `StubDbProvider` | 1, 2, 3, 4, 5, 6, 8, 10, 12, 13, 14, 15, 16, 17, 19, 20, 23, 24, 27, 29, 30, 32, 33 |
+| `SpyDbConnection` / `SpyDbProvider` | 9, 11, 18, 22, 25, 26, 31 |
+| `UnavailableDbProvider` | 7, 14, 21, 28, 34 |
+| `DummyCacheProvider` | 10, 11, 12, 13, 14, 15 |
+| `FakeCacheConnection` / `FakeCacheProvider` | 1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 34 |
+| `StubCacheConnection` / `StubCacheProvider` | 20, 27, 33 |
+| `StubResultSet` / `StubRowValues` | 1–9（登录成功路径由 `Stub/Spy` 携带账号行值）；`SpyDbState::row` 即为此新增 |
+| `MockCacheConnection` / `MockCacheProvider` | 不使用：AuthService 对缓存只做写入/降级判断，无回写契约需要校验 |
 
 ## 4. TokenRepository
 
@@ -658,9 +676,251 @@ AccountRepository 原先直接持有 `dcp::ConnectionPool&`，无法注入替身
 | 标签 | `fast;unit` |
 | 超时 | 10 秒 |
 
-## 7. 新增模块接入流程
+## 7. AuthService
 
-### 7.1 五步设计法
+### 7.1 被测单元与依赖
+
+被测文件：
+
+- [auth_service.h](../../services/auth_service.h)
+- [auth_service.cpp](../../services/auth_service.cpp)
+
+构造注入：
+
+- `repository::AccountRepository&`
+- `repository::BlacklistRepository&`
+- `repository::TokenRepository&`
+- `const infra::JwtConfig&`（仅取 issuer、双密钥与两个 TTL）
+
+`AuthService` 依赖的是**具体仓库类**，没有仓库级接口；因此替身注入点在仓库下一层：用第 3 节的 `IDbConnectionProvider` / `ICacheConnectionProvider` 替身构造真实仓库对象，再注入 `AuthService`。`BlacklistRepository` 仍直接持有 `dcp::ConnectionPool&`，但 `login` 中的封禁查询已被注释，测试只传入共享连接池单例满足构造，不触发任何访问。
+
+```mermaid
+flowchart LR
+    SUT["AuthService"]
+    SUT -->|"构造注入"| ACC["AccountRepository"]
+    SUT -->|"构造注入"| BL["BlacklistRepository"]
+    SUT -->|"构造注入"| TOK["TokenRepository"]
+    SUT -->|"构造"| AS["TokenSigner(access)"]
+    SUT -->|"构造"| RS["TokenSigner(refresh)"]
+    ACC -->|"acquire()"| DBP["IDbConnectionProvider"]
+    TOK -->|"acquire()"| DBP
+    TOK -->|"acquire()"| CP["ICacheConnectionProvider"]
+    BL -.->|"未被调用"| POOL["dcp::ConnectionPool 单例"]
+    DBP -.实现.- STUB["StubDbProvider / SpyDbProvider / UnavailableDbProvider"]
+    CP -.实现.- FAKE["FakeCacheProvider / StubCacheProvider / DummyCacheProvider"]
+```
+
+| 依赖 | 方法 | 返回/副作用 | 调用点 |
+|---|---|---|---|
+| `AccountRepository` | `find_account_by_user_id` | `optional<AccountRecord>` / 抛 `DatabaseError` | `login`（凭据）、`signUp`（查重） |
+| `AccountRepository` | `insert_account_by_user_id` | `bool` / 抛 `DatabaseError` | `signUp` |
+| `AccountRepository` | `delete_account_by_public_id` | `bool` / 抛 `DatabaseError` | `logoff` |
+| `TokenRepository` | `find_refresh_token` | `bool` / 抛 `DatabaseError` | `logout`、`logoff` |
+| `TokenRepository` | `insert_refresh_token` | `bool` / 抛 `DatabaseError` | `logout`、`refresh_token`、`logoff` |
+| `TokenRepository` | `insert_access_token` | `bool` | `logout`、`refresh_token`、`logoff` |
+| `TokenRepository` | `hash_secret` | `const string&` | 上述所有 token 存储键计算 |
+| `TokenSigner` | `sign` | `SignedToken` | `login`、`refresh_token` |
+| `TokenSigner` | `verify` | `optional<TokenPayload>` | `logout`、`refresh_token`、`logoff` |
+| `infra::verify_password` / `hash_password` | — | 校验/生成 PBKDF2 哈希 | `login` / `signUp` |
+
+`BlacklistRepository::find_active_by_user_id` 当前**不被调用**。
+
+### 7.2 行为覆盖矩阵
+
+| 方法 | 正常 | 边界 | 异常 | 交互 |
+|---|---|---|---|---|
+| `login` | 凭据正确 → 返回 public_id + 双 Token | 账号不存在、密码错误、存储哈希格式非法 → InvalidCredentials | 连接不可用、SQL 异常 → DatabaseError | 只查 account 表；不写 token 库/缓存；Token 的 sub/role/TTL 正确 |
+| `signUp` | 插入成功 → 返回 `usr_` + 20 位公开 ID | 重复 user_id → InvalidParam；插入 0 行 → DatabaseError | 连接不可用、更新异常 → DatabaseError | 先查重再 INSERT；5 个绑定参数；落库哈希可回验明文 |
+| `logout` | refresh 记录入库 + access 写入缓存 | 旧 refresh token → Unauthorized；无效签名 → Unauthorized | 连接不可用、refresh 入库失败、access 缓存失败 → DatabaseError | SELECT refresh 哈希；INSERT refresh（旧 token 哈希 + payload 过期时间）；缓存 key/value 为 access 哈希，TTL 为 access_ttl_s |
+| `refresh_token` | refreshing=true 换发双 Token；false 只换 access | 无效签名、错误密钥签名 → Unauthorized | 刷新时旧 refresh 入库抛错 → DatabaseError | 刷新时吊销旧 refresh；始终吊销旧 access；缓存写入失败不影响返回 |
+| `logoff` | 删除账号 + 双 Token 吊销 | 旧 refresh token → Unauthorized；无效签名 → Unauthorized；删除 0 行 → DatabaseError | 连接不可用、access 缓存失败 → DatabaseError | DELETE account + INSERT refresh + 缓存 access；删除失败即短路 |
+
+### 7.3 用例目录
+
+> 编号是本文档的设计编号，与 [test_auth_service.cpp](../unit/services/test_auth_service.cpp) 中的 `TEST_CASE` 一一对应，顺序与文件一致。
+
+#### login
+
+| # | 用例名 | 替身配置 | 断言 |
+|---|---|---|---|
+| 1 | `login returns public id and both tokens on valid credentials` | StubDb，`has_row=true`，`row` 预置账号；FakeCache 空 | `public_id == "usr_alice"`；双 Token 非空 |
+| 2 | `login signs access token with user role and configured ttl` | StubDb + FakeCache | access 可验签；sub/role 正确；`access_token_exp == payload.expires_at`；TTL 约 60 秒 |
+| 3 | `login signs refresh token with user role and configured ttl` | StubDb + FakeCache | refresh 可验签；sub/role 正确；`refresh_token_exp == payload.expires_at`；TTL 约 3600 秒 |
+| 4 | `login throws InvalidCredentials when password does not match` | StubDb + FakeCache，密码 `wrong` | 抛 InvalidCredentials |
+| 5 | `login throws InvalidCredentials when account does not exist` | StubDb，`has_row=false` | 抛 InvalidCredentials |
+| 6 | `login throws InvalidCredentials when stored hash is malformed` | StubDb，`iterations=0` | 抛 InvalidCredentials |
+| 7 | `login throws DatabaseError when db unavailable` | UnavailableDb + FakeCache | 抛 DatabaseError |
+| 8 | `login throws DatabaseError on sql failure` | StubDb，`throw_on_query=true` | 抛 DatabaseError |
+| 9 | `login queries account table without writing token stores` | SpyDb，`has_row=true` + 账号行值；FakeCache 空 | SELECT SQL 正确；绑定 user_id；`query_calls=1`；`update_calls=0`；事件 `prepare → bind_string → query`；缓存为空 |
+
+#### signUp
+
+| # | 用例名 | 替身配置 | 断言 |
+|---|---|---|---|
+| 10 | `signUp returns generated usr public id` | StubDb，`has_row=false`，`update_rows=1` + DummyCache | 返回以 `usr_` 开头、长度 24 |
+| 11 | `signUp stores credentials that verify against the plaintext password` | SpyDb，`has_row=false`，`update_rows=1` + DummyCache | 参数 1–4 依次为 user_id（查重）、public_id、user_id、hash、salt；参数 5 为 iterations；哈希可回验 `secret`、拒绝 `wrong`；INSERT SQL 与事件序列正确 |
+| 12 | `signUp throws InvalidParam when user id already exists` | StubDb，`has_row=true` + DummyCache | 抛 InvalidParam |
+| 13 | `signUp throws DatabaseError when no account row inserted` | StubDb，`has_row=false`，`update_rows=0` + DummyCache | 抛 DatabaseError |
+| 14 | `signUp throws DatabaseError when db unavailable` | UnavailableDb + DummyCache | 抛 DatabaseError |
+| 15 | `signUp throws DatabaseError on sql failure` | StubDb，`has_row=false`，`throw_on_update=true` + DummyCache | 抛 DatabaseError |
+
+#### logout
+
+| # | 用例名 | 替身配置 | 断言 |
+|---|---|---|---|
+| 16 | `logout throws Unauthorized when refresh token is already revoked` | StubDb + FakeCache，预置 refresh 哈希 | 抛 Unauthorized |
+| 17 | `logout throws Unauthorized when refresh token is invalid` | StubDb，`has_row=false` + FakeCache 空 | 抛 Unauthorized |
+| 18 | `logout persists refresh token and caches access token hash` | SpyDb，`has_row=false`，`update_rows=1` + FakeCache | 缓存含 access 哈希且 TTL=60；INSERT refresh 绑定旧 refresh 哈希、过期时间为 payload 过期时间；`update_calls=1`；事件序列正确 |
+| 19 | `logout throws DatabaseError when refresh token cannot be persisted` | StubDb，`update_rows=0` + FakeCache | 抛 DatabaseError；缓存仍为空（短路，未写 access） |
+| 20 | `logout throws DatabaseError when access token cannot be cached` | StubDb，`update_rows=1` + StubCache，`set_result=false` | 抛 DatabaseError |
+| 21 | `logout throws DatabaseError when db unavailable` | UnavailableDb + FakeCache | 抛 DatabaseError |
+
+#### refresh_token
+
+| # | 用例名 | 替身配置 | 断言 |
+|---|---|---|---|
+| 22 | `refresh_token throws Unauthorized when refresh token is invalid` | SpyDb + FakeCache 空 | 抛 Unauthorized；`prepare_calls=0`；缓存为空 |
+| 23 | `refresh_token throws Unauthorized when signed with another key` | StubDb + FakeCache；用 access 密钥签名 refresh | 抛 Unauthorized |
+| 24 | `refresh_token issues new access and refresh tokens when refreshing` | StubDb，`update_rows=1` + FakeCache | 返回 public_id；新双 Token 可验签且 sub 正确；缓存含旧 access 哈希 |
+| 25 | `refresh_token revokes old refresh token with new expiry` | SpyDb，`update_rows=1` + FakeCache | INSERT refresh 绑定旧 refresh 哈希；过期时间等于新 refresh 的 `exp`；`update_calls=1` |
+| 26 | `refresh_token refreshes access token only when not refreshing` | SpyDb + FakeCache | `public_id` 与 `refresh_token` 为空；access 非空；`prepare_calls=0`；`update_calls=0`；缓存含旧 access 哈希 |
+| 27 | `refresh_token still returns access token when cache write fails` | StubDb + StubCache，`set_result=false` | 仍返回可验签的 access token |
+| 28 | `refresh_token throws DatabaseError when old refresh token cannot be revoked` | UnavailableDb + FakeCache，`refreshing=true` | 抛 DatabaseError |
+
+#### logoff
+
+| # | 用例名 | 替身配置 | 断言 |
+|---|---|---|---|
+| 29 | `logoff throws Unauthorized when refresh token is already revoked` | StubDb + FakeCache，预置 refresh 哈希 | 抛 Unauthorized |
+| 30 | `logoff throws Unauthorized when refresh token is invalid` | StubDb，`has_row=false` + FakeCache 空 | 抛 Unauthorized |
+| 31 | `logoff deletes account and revokes both tokens` | SpyDb，`has_row=false`，`update_rows=1` + FakeCache | 绑定参数依次为 refresh 哈希、public_id、refresh 哈希；`update_calls=2`；缓存含 access 哈希且 TTL=60；事件序列正确 |
+| 32 | `logoff throws DatabaseError when no account row deleted` | StubDb，`update_rows=0` + FakeCache | 抛 DatabaseError；缓存为空（短路） |
+| 33 | `logoff throws DatabaseError when access token cannot be cached` | StubDb，`update_rows=1` + StubCache，`set_result=false` | 抛 DatabaseError |
+| 34 | `logoff throws DatabaseError when db unavailable` | UnavailableDb + FakeCache | 抛 DatabaseError |
+
+### 7.4 交互契约
+
+#### `login`
+
+- SQL：`SELECT id, public_id, password_hash, salt, iterations FROM account_it WHERE user_id = ?`
+- 字符串参数：下标 1，值 `user_id`
+- 事件顺序：`prepare → bind_string → query`
+- 只读：不调用 `execute_update`，不访问 token 仓库与缓存
+- 签发：access 与 refresh 分别使用 `JwtConfig` 中的两套密钥，`sub=public_id`、`role=kUserRole`
+- 返回：`LoginResult` 同时携带两个 Token 与各自过期时间
+- 凭据失败统一返回 `InvalidCredentials`，账号不存在与密码错误不可区分
+
+#### `signUp`
+
+- 先执行与 `login` 相同的 SELECT 查重
+- SQL：`INSERT INTO account_it (public_id,user_id,password_hash,salt,iterations) VALUES(?,?,?,?,?)`
+- 字符串参数：下标 1 `public_id`、下标 2 `user_id`、下标 3 `password_hash`、下标 4 `salt`
+- 整型参数：下标 5 `iterations`（默认 PBKDF2 150000 轮）
+- 事件顺序：`prepare → bind_string → query → prepare → bind_string ×4 → bind_int → update`
+- 公开 ID：`usr_` + 20 位 Base62 随机串（`make_public_id`）
+- 插入 0 行 → `DatabaseError`；重复 user_id → `InvalidParam`
+
+#### `logout`
+
+- 先以 `hmac_sha256_base64url(hash_secret, refresh_token)` 查询 refresh 是否已吊销
+- SQL：`SELECT id FROM refresh_token_it WHERE token_hash=?`，绑定下标 1
+- 已吊销或验签失败 → `Unauthorized`
+- SQL：`INSERT INTO refresh_token_it (token_hash,expires_at) VALUES (?,?)`
+  - 字符串参数下标 1：`hmac(hash_secret, refresh_token)`
+  - 时间参数下标 2：`utils::timestamp_to_string(payload.expires_at)`
+- 缓存：`set(key=hmac(hash_secret, access_token), value=同一哈希, ttl=access_ttl_s)`
+- 任一写入失败（返回 false 或抛 `DatabaseError`）→ `DatabaseError`
+- 短路：refresh 入库失败时不写 access 缓存
+
+#### `refresh_token`
+
+- 校验 refresh 签名、issuer、有效期；失败 → `Unauthorized`
+- `refreshing=true`：
+  - 用 refresh 密钥签发新 refresh，过期时间为 `now + refresh_ttl_s`
+  - INSERT 旧 refresh 哈希，`expires_at` 为新 refresh 的过期时间
+  - 返回 `public_id = payload.sub` 与新 refresh
+  - 该 INSERT 的布尔返回值被忽略，但 `DatabaseError` 异常照常抛出
+- 始终：签发新 access（`now + access_ttl_s`），并缓存旧 access 哈希，TTL 为 `access_ttl_s`
+- 缓存写入失败：`insert_access_token` 返回 false 被忽略，方法仍正常返回
+- `refreshing=false`：不生成 refresh、不写数据库；`public_id` 与 `refresh_token` 为空
+
+#### `logoff`
+
+- 前两步与 `logout` 相同：查吊销 + 验签，失败 → `Unauthorized`
+- SQL：`DELETE FROM account_it WHERE public_id=?`，字符串参数下标 1
+- 随后 INSERT refresh（旧 refresh 哈希 + payload 过期时间）并缓存 access 哈希（TTL `access_ttl_s`）
+- 删除返回 false 或任一写入失败 → `DatabaseError`
+- 短路：删除失败时不写任何 token 记录
+
+### 7.5 错误映射
+
+| 场景 | 错误码/结果 |
+|---|---|
+| `login` 账号不存在 / 密码错误 / 存储哈希格式非法 | `common::ErrorCode::InvalidCredentials` |
+| `signUp` user_id 已存在 | `common::ErrorCode::InvalidParam` |
+| `signUp` 插入 0 行 | `common::ErrorCode::DatabaseError` |
+| `logout` / `logoff` refresh 已被吊销 | `common::ErrorCode::Unauthorized` |
+| `logout` / `logoff` / `refresh_token` refresh 签名或有效期非法 | `common::ErrorCode::Unauthorized` |
+| 底层仓库抛 `DatabaseError`（连接不可用、`sql::SQLException`、空结果集） | 原样向上抛出 |
+| `logout` / `logoff` 的 refresh 入库或 access 缓存返回 false | `common::ErrorCode::DatabaseError` |
+| `refresh_token` 的 access 缓存返回 false | 忽略，正常返回 |
+| `find_refresh_token` 缓存不可用或 `get` 异常 | 由 `TokenRepository` 降级 DB，不单独抛错 |
+
+### 7.6 测试配置与辅助函数
+
+常量：
+
+| 常量 | 值 |
+|---|---|
+| `kAccountTable` | `account_it` |
+| `kBlacklistTable` | `blacklist_it` |
+| `kRefreshTable` | `refresh_token_it` |
+| `kHashSecret` | `unit-test-secret` |
+| `kIssuer` | `sdu-forum-test` |
+| `kAccessSecret` | `unit-test-access-secret` |
+| `kRefreshSecret` | `unit-test-refresh-secret` |
+| `kAccessTtlSeconds` | 60 |
+| `kRefreshTtlSeconds` | 3600 |
+| `kTestIterations` | 1000（仅用于构造登录账号行，加速测试） |
+
+辅助函数：
+
+| 函数 | 作用 |
+|---|---|
+| `make_token_config()` | 组装 `TokenStoreConfig`（表名、hash_secret、双 TTL） |
+| `make_jwt_config()` | 组装 `JwtConfig`（issuer、双密钥、分钟/小时 TTL） |
+| `shared_db_pool()` | 返回 `dcp::ConnectionPool::instance(MySQL)`，仅供 `BlacklistRepository` 构造 |
+| `hash_of(token)` | `utils::hmac_sha256_base64url(kHashSecret, token)`，用于缓存/数据库键断言 |
+| `sign_access(sub)` / `sign_refresh(sub)` | 用对应密钥签发测试用 Token |
+| `verify_access(token)` / `verify_refresh(token)` | 用对应密钥验签，返回 `optional<TokenPayload>` |
+| `fill_account_row(row, public_id, password)` | 向 `StubRowValues` 填充 id/public_id/hash/salt/iterations |
+| `provide_valid_account(db, public_id, password)` | 同时配置 `has_row` 与 `row`，Stub/Spy 通用 |
+| `AuthEnv<DbProvider, CacheProvider>` | 按声明顺序持有 db、cache、account、blacklist、token、auth，自动完成装配 |
+| `throws_with_code(callable, expected)` | 捕获 `AppException` 并比较 `code()` |
+
+注意：登录成功路径使用 `infra::hash_password(password, 1000)` 生成账号行，`verify_password` 读取该行中的 `iterations`，因此无需支付生产默认 150000 轮的开销；`signUp` 走生产默认值，测试中由 `verify_password` 回验捕获到的参数。
+
+### 7.7 测试文件与 CMake
+
+| 项 | 值 |
+|---|---|
+| 源文件 | `unit/services/test_auth_service.cpp` |
+| 公共 main | `support/test_main.cpp` |
+| 链接库 | `sdu_app` |
+| 可执行文件 | `test_auth_service` |
+| CTest 名称 | `AuthServiceUnit` |
+| 标签 | `fast;unit` |
+| 超时 | 60 秒（`signUp` 的 PBKDF2 默认轮次较慢） |
+
+### 7.8 接缝说明
+
+- `AuthService` 依赖具体仓库类而非接口：替身注入点下移到 `IDbConnectionProvider` / `ICacheConnectionProvider`，用真实仓库承载替身，是本项目服务层测试的统一做法。
+- `BlacklistRepository` 仍直接持有 `dcp::ConnectionPool&`，暂无接缝；由于 `login` 的封禁查询已被注释，测试通过共享连接池单例构造且从不访问。**若恢复封禁校验，需先把 `BlacklistRepository` 改为注入 `IDbConnectionProvider`**，否则该分支无法在单元测试中覆盖。
+- 为覆盖“登录成功但不写 token 存储”的交互断言，`SpyDbState` 新增 `row` 字段，使 Spy 在返回 1 行时也能携带账号列值；该字段为增量扩展，不影响既有 Spy 用例。
+
+## 8. 新增模块接入流程
+
+### 8.1 五步设计法
 
 1. **找接缝**：确认被测单元依赖的是接口，而不是具体连接池/客户端。
 2. **画依赖地形**：列出依赖接口的每个方法、返回值、副作用、调用点。
@@ -677,14 +937,14 @@ AccountRepository 原先直接持有 `dcp::ConnectionPool&`，无法注入替身
    - 每个异常开关至少被一个用例配置
    - 用例按 `<方法> <行为> <场景>` 命名
 
-### 7.2 替身复用与扩展规则
+### 8.2 替身复用与扩展规则
 
 - 相同接口的 State、Connection、Provider 优先复用，不重复定义
 - 接口新增方法时，扩展现有接口与替身，而不是新建一套
 - 同一接口的 Stub/Spy/Fake/Mock 全部保留，因为语义不可互替
 - 新增 State 字段时必须同步更新本文档第 3 节
 
-### 7.3 CMake 注册模板
+### 8.3 CMake 注册模板
 
 ```cmake
 add_executable(test_<unit>
@@ -711,7 +971,7 @@ set_tests_properties(<Unit>Unit PROPERTIES
 )
 ```
 
-### 7.4 文档追加模板
+### 8.4 文档追加模板
 
 新增模块时，在本文档追加：
 
@@ -739,7 +999,7 @@ set_tests_properties(<Unit>Unit PROPERTIES
 - 源文件 / 可执行文件 / CTest 名称 / 标签 / 超时
 ```
 
-## 8. 维护检查清单
+## 9. 维护检查清单
 
 新增或修改用例后，逐项检查：
 
@@ -755,7 +1015,7 @@ set_tests_properties(<Unit>Unit PROPERTIES
 - [ ] CMake 已注册新测试目标
 - [ ] `ctest -L unit` 全部通过
 
-## 9. 变更记录
+## 10. 变更记录
 
 | 日期 | 变更 |
 |---|---|
@@ -763,3 +1023,4 @@ set_tests_properties(<Unit>Unit PROPERTIES
 | 2026-11-17 | 缓存降级策略调整：缓存连接不可用时 `find_refresh_token` 降级 DB，`find_access_token` / `insert_access_token` 返回 false；缓存回写异常不再抛错；用例数更新为 33 |
 | 2026-11-17 | `find_refresh_token` 的缓存 `get` 运行时异常也降级 DB：原“抛 RedisError”用例替换为“降级 DB 命中”和“降级 DB 未命中”两个用例；TokenRepository 不再有 RedisError 抛出路径；用例数更新为 34 |
 | 2026-11-18 | 新增 `AccountRepository` 章节（21 个用例）：含依赖地形、行为矩阵、用例目录、交互契约、错误映射与接缝说明；`StubResultSet` 支持 `StubRowValues` 行值，`Stub/Spy` 支持 `set_int`；章节号顺延（Utils 为第 6 节，变更记录为第 9 节） |
+| 2026-11-21 | 新增 `AuthService` 章节（34 个用例）：含依赖地形、行为矩阵、用例目录、交互契约、错误映射与接缝说明；`SpyDbState` 新增 `row` 行值字段，使登录成功的交互断言可复用 Spy；章节号顺延（接入流程为第 8 节，检查清单为第 9 节，变更记录为第 10 节） |
