@@ -34,6 +34,7 @@
 #include "repositories/connection_provider.h"
 
 #include <chrono>
+#include <cstdint>
 #include <utility>
 
 #include "conn-pool/ConnectionPool.h"
@@ -72,6 +73,11 @@ public:
         m_guard->set_int(index, value);
     }
 
+    void set_uint64(uint16_t index, uint64_t value) override
+    {
+        m_guard->set_uint64(index, value);
+    }
+
     void set_datetime(uint16_t index, const std::string& value) override
     {
         m_guard->set_datetime(index, value);
@@ -97,8 +103,7 @@ class PooledCacheConnection final : public ICacheConnection
 public:
     /// @brief 接管一个已借出的缓存连接
     /// @param guard 连接守卫
-    explicit PooledCacheConnection(rcp::RedisConnGuard guard)
-        : m_guard(std::move(guard))
+    explicit PooledCacheConnection(rcp::RedisConnGuard guard) : m_guard(std::move(guard))
     {
     }
 
@@ -110,12 +115,10 @@ public:
         return std::string(*value);
     }
 
-    bool set(const std::string& key, const std::string& value,
-             int ttl_seconds) override
+    bool set(const std::string& key, const std::string& value, int ttl_seconds) override
     {
         return m_guard->set(key, value,
-                            std::chrono::milliseconds(
-                                static_cast<long long>(ttl_seconds) * 1000));
+                            std::chrono::milliseconds(static_cast<long long>(ttl_seconds) * 1000));
     }
 
 private:
@@ -124,8 +127,7 @@ private:
 
 }  // namespace
 
-PooledDbConnectionProvider::PooledDbConnectionProvider(dcp::ConnectionPool& pool)
-    : m_pool(pool)
+PooledDbConnectionProvider::PooledDbConnectionProvider(dcp::ConnectionPool& pool) : m_pool(pool)
 {
 }
 
@@ -137,8 +139,7 @@ std::unique_ptr<IDbConnection> PooledDbConnectionProvider::acquire()
     return std::make_unique<PooledDbConnection>(std::move(guard));
 }
 
-PooledCacheConnectionProvider::PooledCacheConnectionProvider(
-    rcp::RedisConnectionPool& pool)
+PooledCacheConnectionProvider::PooledCacheConnectionProvider(rcp::RedisConnectionPool& pool)
     : m_pool(pool)
 {
 }

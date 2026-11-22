@@ -78,6 +78,8 @@ public:
     /// @param value 参数值
     virtual void set_int(uint16_t index, int value) = 0;
 
+    virtual void set_uint64(uint16_t index, uint64_t value) = 0;
+
     /// @brief 绑定日期时间参数
     /// @param index 参数下标，从 1 开始
     /// @param value 格式为 YYYY-MM-DD HH:MM:SS 的时间字符串
@@ -119,8 +121,7 @@ public:
     /// @param value 缓存值
     /// @param ttl_seconds 过期时间，单位秒
     /// @return 写入是否成功
-    virtual bool set(const std::string& key, const std::string& value,
-                     int ttl_seconds) = 0;
+    virtual bool set(const std::string& key, const std::string& value, int ttl_seconds) = 0;
 };
 
 /// @brief 缓存连接提供者
