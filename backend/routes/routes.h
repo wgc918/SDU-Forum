@@ -1,5 +1,7 @@
 #pragma once
 
+#include "controllers/admin/user_controller.h"
+
 namespace drogon
 {
 class HttpAppFramework;
@@ -13,7 +15,8 @@ class AuthController;
 namespace admin::controller
 {
 class AdminAuthController;
-}
+class AdminUserController;
+}  // namespace admin::controller
 
 namespace routes
 {
@@ -23,4 +26,7 @@ void register_auth_routes(drogon::HttpAppFramework& app, controller::AuthControl
 
 void register_admin_auth_routes(drogon::HttpAppFramework&               app,
                                 admin::controller::AdminAuthController& controller);
+
+void register_admin_user_routes(drogon::HttpAppFramework&               app,
+                                admin::controller::AdminUserController& controller);
 }  // namespace routes
