@@ -75,6 +75,35 @@ enum class BanSource : uint8_t
     Report = 2,  // 举报触发
 };
 
+inline std::string ban_source_to_string(BanSource source)
+{
+    switch (source)
+    {
+        case ban::BanSource::Manual:
+            return "manual";
+        case ban::BanSource::Auto:
+            return "auto";
+        case ban::BanSource::Report:
+            return "report";
+        default:
+            return "unknown";
+    }
+}
+
+inline ban::BanSource string_to_ban_source(const std::string& source)
+{
+    if (source == "manual")
+        return ban::BanSource::Manual;
+    if (source == "auto")
+        return ban::BanSource::Auto;
+    if (source == "report")
+        return ban::BanSource::Report;
+
+    return ban::BanSource::Manual;
+}
+
+
+
 /// 封禁状态（对应表 status）
 enum class BanStatus : uint8_t
 {
@@ -82,6 +111,24 @@ enum class BanStatus : uint8_t
     Revoked = 0,  // 已解除
     Expired = 2,  // 已过期
 };
+
+/// 封禁状态对外文案
+inline const char* ban_status_name(std::optional<ban::BanStatus> status)
+{
+    if (!status)
+        return "none";
+
+    switch (*status)
+    {
+        case ban::BanStatus::Active:
+            return "active";
+        case ban::BanStatus::Expired:
+            return "expired";
+        case ban::BanStatus::Revoked:
+            return "revoked";
+    }
+    return "none";
+}
 
 // ============================================================
 // 映射条目 & 元数据
