@@ -33,10 +33,10 @@ public:
                 drogon::MiddlewareCallback&& mcb);
 
 private:
-    infra::TokenSigner          m_refresh_signer;
-    infra::TokenSigner          m_access_signer;
-    repository::TokenRepository m_token_repo;
-    bool                        m_is_access;  // ture 校验access_token ,否则校验refresh_token
+    infra::TokenSigner           m_refresh_signer;
+    infra::TokenSigner           m_access_signer;
+    repository::TokenRepository& m_token_repo;
+    bool                         m_is_access;  // ture 校验access_token ,否则校验refresh_token
 };
 
 class AccessAuthMiddleware : public drogon::HttpMiddleware<AccessAuthMiddleware, false>,
