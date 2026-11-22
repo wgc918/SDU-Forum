@@ -63,8 +63,10 @@ target_link_libraries(sdu_infra PUBLIC
 add_library(sdu_app STATIC
     controllers/auth_controller.cpp
     controllers/admin/auth_controller.cpp
+    controllers/admin/user_controller.cpp
     services/auth_service.cpp
     services/admin/auth_service.cpp
+    services/admin/user_service.cpp
     repositories/account_repository.cpp
     repositories/admin_account_repository.cpp
     repositories/blacklist_repository.cpp
@@ -95,6 +97,7 @@ add_executable(sdu_forum_server
     app/app_context.cpp
     app/modules/auth_module.cpp
     app/modules/admin/auth_module.cpp
+    app/modules/admin/user_module.cpp
 )
 
 target_link_libraries(sdu_forum_server PRIVATE
