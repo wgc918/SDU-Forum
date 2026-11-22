@@ -2,38 +2,32 @@
 
 #include <drogon/HttpAppFramework.h>
 
-#include <memory>
-
 #include "../module.h"
 #include "config/app_config.h"
-#include "conn-pool/ConnectionPool.h"
 #include "controllers/admin/auth_controller.h"
-#include "middleware/admin_auth_middleware.h"
-#include "middleware/role_middleware.h"
-#include "redis-pool/RedisConnectionPool.h"
 #include "repositories/admin_account_repository.h"
+#include "repositories/connection_provider.h"
 #include "repositories/token_repository.h"
 #include "services/admin/auth_service.h"
 
 namespace app::modules
 {
+/// @brief 管理员认证模块：登录、登出与令牌刷新
 class AdminAuthModule : public Module
 {
 public:
-    AdminAuthModule(const infra::AppConfig& config, dcp::ConnectionPool* db_pool,
-                    rcp::RedisConnectionPool* redis_pool);
+    /// @brief 构造管理员认证模块
+    /// @param config 应用配置
+    /// @param db_provider 共享数据库连接提供者
+    /// @param token_repo 共享令牌仓库
+    AdminAuthModule(const infra::AppConfig& config,
+                    repository::PooledDbConnectionProvider& db_provider,
+                    repository::TokenRepository& token_repo);
     void register_routes(drogon::HttpAppFramework& app) override;
-    void register_middlewares(drogon::HttpAppFramework& app) override;
 
 private:
-    repository::PooledDbConnectionProvider                  m_db_provider;
-    repository::PooledCacheConnectionProvider               m_cache_provider;
-    repository::AdminAccountRepository                      m_account_repository;
-    repository::TokenRepository                             m_token_repo;
-    admin::service::AdminAuthService                        m_service;
-    admin::controller::AdminAuthController                  m_controller;
-    std::shared_ptr<middleware::AdminAccessAuthMiddleware>  m_access_middleware;
-    std::shared_ptr<middleware::AdminRefreshAuthMiddleware> m_refresh_middleware;
-    std::shared_ptr<middleware::AdminRoleMiddle>            m_role_middleware;
+    repository::AdminAccountRepository    m_account_repository;
+    admin::service::AdminAuthService      m_service;
+    admin::controller::AdminAuthController m_controller;
 };
 }  // namespace app::modules

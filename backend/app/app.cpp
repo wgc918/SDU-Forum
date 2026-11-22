@@ -66,8 +66,8 @@ int main(int argc, char** argv)
 
         app::AppContext context(config);
         context.init_infrastructure();
-        context.register_routes();
         context.register_middlewares();
+        context.register_routes();
 
         drogon::app().registerPostHandlingAdvice(
             [](const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp)
