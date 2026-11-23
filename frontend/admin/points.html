@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>积分与等级 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="points">
+    <!--
+      ======================================================================
+      页面：积分与等级
+      ----------------------------------------------------------------------
+      数据字段：
+        POINT_LEVELS    level(0-4) / name / requirement / permission / mode(auto|manual)
+        POINT_RULES     id / action / value(正负) / dailyCap / enabled
+        POINT_LOGS      id / userId / studentId / nickname / action / delta / balance / createdAt
+        POINT_LEADERBOARD rank / userId / nickname / studentId / college / level / points
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET   /api/admin/points/levels
+        PUT   /api/admin/points/levels/{level}
+        GET   /api/admin/points/rules
+        PATCH /api/admin/points/rules/{id}/status { enabled }
+        GET   /api/admin/points/logs?page=1&pageSize=10
+        GET   /api/admin/points/leaderboard?limit=20
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">积分与等级</h1>
+        <p class="page-desc">配置信任等级权益与积分获取规则，查看积分流水与排行榜</p>
+      </div>
+    </div>
+
+    <div class="points-layout">
+      <div class="card table-card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">信任等级</div>
+            <div class="card-sub">等级决定用户可用的社区能力，自动等级按积分实时计算</div>
+          </div>
+          <div class="card-head-side">
+            <span class="text-sm muted">L0 - L4</span>
+          </div>
+        </div>
+        <div id="level-table"></div>
+      </div>
+
+      <div class="card table-card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">积分规则</div>
+            <div class="card-sub">行为触发后按规则累计积分，每日上限可防止刷分</div>
+          </div>
+        </div>
+        <div id="rule-table"></div>
+      </div>
+    </div>
+
+    <div class="card points-tabs-card">
+      <div class="tabs" id="points-tabs" role="tablist">
+        <button type="button" class="tab active" data-tab="logs" role="tab">积分流水<span class="points-tab-count" id="log-count">0</span></button>
+        <button type="button" class="tab" data-tab="rank" role="tab">积分排行榜 TOP20<span class="points-tab-count">20</span></button>
+      </div>
+
+      <div class="points-panel" id="panel-logs">
+        <div id="log-table"></div>
+        <div id="log-pagination"></div>
+      </div>
+
+      <div class="points-panel" id="panel-rank" hidden>
+        <div id="rank-table"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('points');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const LEVELS = window.POINT_LEVELS;
+      const RULES = window.POINT_RULES;
+      const LOGS = window.POINT_LOGS;
+      const LEADERBOARD = window.POINT_LEADERBOARD;
+
+      const logState = { page: 1, pageSize: 10 };
+
+      function levelMeta(level) {
+        return LEVELS.find(function (item) { return item.level === level; }) || LEVELS[0];
+      }
+
+      function modePill(mode) {
+        return mode === 'auto' ? App.pill('自动', 'info') : App.pill('手动', 'neutral');
+      }
+
+      /* ---------------------------------------------------------------
+         信任等级
+         --------------------------------------------------------------- */
+      function renderLevels() {
+        App.renderTable('#level-table', [
+          {
+            title: '等级', width: '64px',
+            cell: function (item) {
+              return '<span class="level-badge lv' + item.level + '">' + item.level + '</span>';
+            }
+          },
+          {
+            title: '名称', width: '106px',
+            cell: function (item) { return '<span class="level-name">' + esc(item.name) + '</span>'; }
+          },
+          {
+            title: '所需条件',
+            cell: function (item) { return '<span class="text-sm muted">' + esc(item.requirement) + '</span>'; }
+          },
+          {
+            title: '权限说明',
+            cell: function (item) { return '<div class="perm-text" title="' + esc(item.permission) + '">' + esc(item.permission) + '</div>'; }
+          },
+          {
+            title: '方式', width: '70px',
+            cell: function (item) { return modePill(item.mode); }
+          },
+          {
+            title: '操作', align: 'right', width: '64px',
+            cell: function (item) {
+              return '<div class="table-actions">' +
+                '<button type="button" class="icon-btn" data-action="edit-level" data-level="' + item.level + '" title="编辑等级" aria-label="编辑等级">' + App.icon('edit', 16) + '</button>' +
+                '</div>';
+            }
+          }
+        ], LEVELS, {
+          emptyText: '暂无等级配置',
+          emptyDesc: '请先初始化信任等级',
+          emptyIcon: 'sparkles'
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         积分规则
+         --------------------------------------------------------------- */
+      function renderRules() {
+        App.renderTable('#rule-table', [
+          {
+            title: '行为',
+            cell: function (rule) { return '<span class="rule-action">' + esc(rule.action) + '</span>'; }
+          },
+          {
+            title: '积分值', width: '80px', align: 'right',
+            cell: function (rule) {
+              const plus = rule.value >= 0;
+              return '<span class="rule-value ' + (plus ? 'plus' : 'minus') + '">' + (plus ? '+' : '') + rule.value + '</span>';
+            }
+          },
+          {
+            title: '每日上限', width: '84px', align: 'right',
+            cell: function (rule) {
+              return rule.dailyCap > 0
+                ? '<span class="rule-cap">' + rule.dailyCap + '</span>'
+                : '<span class="rule-cap">不限</span>';
+            }
+          },
+          {
+            title: '启用', width: '72px', align: 'right',
+            cell: function (rule) {
+              return '<label class="switch"><input type="checkbox" class="js-rule-switch" data-id="' + rule.id + '"' +
+                (rule.enabled ? ' checked' : '') + ' aria-label="启用规则"><span class="switch-track"></span></label>';
+            }
+          }
+        ], RULES, {
+          emptyText: '暂无积分规则',
+          emptyDesc: '添加规则后用户行为才会产生积分',
+          emptyIcon: 'list'
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         积分流水
+         --------------------------------------------------------------- */
+      function renderLogs() {
+        const totalPages = Math.max(1, Math.ceil(LOGS.length / logState.pageSize));
+        if (logState.page > totalPages) logState.page = totalPages;
+        const pageRows = LOGS.slice((logState.page - 1) * logState.pageSize, logState.page * logState.pageSize);
+        $('#log-count').textContent = LOGS.length;
+
+        App.renderTable('#log-table', [
+          {
+            title: '学号', width: '190px',
+            cell: function (log) {
+              return '<div class="table-user">' + App.avatarHTML(log.nickname, log.userId, 30) +
+                '<div style="min-width:0"><div class="cell-main">' + esc(log.studentId) + '</div>' +
+                '<div class="cell-sub">' + esc(log.nickname) + '</div></div></div>';
+            }
+          },
+          {
+            title: '行为',
+            cell: function (log) { return '<span class="text-md">' + esc(log.action) + '</span>'; }
+          },
+          {
+            title: '变动值', width: '96px', align: 'right',
+            cell: function (log) {
+              const plus = log.delta >= 0;
+              return '<span class="delta-chip ' + (plus ? 'plus' : 'minus') + '">' + (plus ? '+' : '') + log.delta + '</span>';
+            }
+          },
+          {
+            title: '余额', width: '110px', align: 'right',
+            cell: function (log) { return '<span class="balance-cell">' + App.fmtNum(log.balance) + '</span>'; }
+          },
+          {
+            title: '时间', width: '152px',
+            cell: function (log) {
+              return '<div class="cell-main" style="font-weight:400">' + App.fmtDate(log.createdAt, 'YYYY-MM-DD HH:mm') + '</div>' +
+                '<div class="cell-sub">' + App.fmtRelative(log.createdAt) + '</div>';
+            }
+          }
+        ], pageRows, {
+          emptyText: '暂无积分流水',
+          emptyDesc: '用户产生积分行为后会记录在这里',
+          emptyIcon: 'history'
+        });
+
+        App.renderPagination('#log-pagination', {
+          page: logState.page,
+          pageSize: logState.pageSize,
+          total: LOGS.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            logState.page = page;
+            logState.pageSize = pageSize;
+            renderLogs();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         排行榜
+         --------------------------------------------------------------- */
+      function renderRank() {
+        App.renderTable('#rank-table', [
+          {
+            title: '排名', width: '80px',
+            cell: function (item) {
+              const topClass = item.rank <= 3 ? ' top-' + item.rank : '';
+              return '<div class="rank-cell"><span class="rank-num' + topClass + '">' + item.rank + '</span>' +
+                (item.rank <= 3 ? '<span class="text-sm muted">TOP</span>' : '') + '</div>';
+            }
+          },
+          {
+            title: '头像昵称',
+            cell: function (item) {
+              return '<div class="table-user">' + App.avatarHTML(item.nickname, item.userId, 32) +
+                '<div style="min-width:0"><div class="cell-main">' + esc(item.nickname) + '</div>' +
+                '<div class="cell-sub">' + esc(item.studentId) + ' · ' + esc(item.college) + '</div></div></div>';
+            }
+          },
+          {
+            title: '等级', width: '120px',
+            cell: function (item) {
+              const meta = levelMeta(item.level);
+              return '<span class="level-pill lv' + item.level + '">L' + item.level + ' ' + esc(meta.name) + '</span>';
+            }
+          },
+          {
+            title: '积分', width: '110px', align: 'right',
+            cell: function (item) { return '<span class="points-score">' + App.fmtNum(item.points) + '</span>'; }
+          }
+        ], LEADERBOARD, {
+          emptyText: '暂无排行数据',
+          emptyDesc: '用户产生积分后将在这里排名',
+          emptyIcon: 'trending-up'
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         等级编辑
+         --------------------------------------------------------------- */
+      function openLevelModal(level) {
+        const body = '<div class="form-stack">' +
+          '<div class="flex items-center gap-2"><span class="level-badge lv' + level.level + '">' + level.level + '</span>' +
+          '<span class="text-md muted">信任等级 L' + level.level + '</span></div>' +
+          '<div class="field"><label class="label" for="lv-name">等级名称</label>' +
+          '<input class="control" id="lv-name" type="text" maxlength="12" value="' + esc(level.name) + '"></div>' +
+          '<div class="field"><label class="label" for="lv-requirement">所需条件</label>' +
+          '<input class="control" id="lv-requirement" type="text" value="' + esc(level.requirement) + '"></div>' +
+          '<div class="field"><label class="label" for="lv-permission">权限说明</label>' +
+          '<textarea class="control" id="lv-permission" rows="3">' + esc(level.permission) + '</textarea></div>' +
+          '<div class="field"><label class="label">升级方式</label>' +
+          '<div class="option-row option-row-2" id="lv-mode-row">' +
+          '<label class="option-pill' + (level.mode === 'auto' ? ' active' : '') + '">' +
+          '<input type="radio" name="lv-mode" value="auto"' + (level.mode === 'auto' ? ' checked' : '') + '>' +
+          '<span>自动</span><span class="sub">满足条件即时升级</span></label>' +
+          '<label class="option-pill' + (level.mode === 'manual' ? ' active' : '') + '">' +
+          '<input type="radio" name="lv-mode" value="manual"' + (level.mode === 'manual' ? ' checked' : '') + '>' +
+          '<span>手动</span><span class="sub">由管理员审核授予</span></label>' +
+          '</div></div></div>';
+
+        App.modal({
+          title: '编辑信任等级',
+          desc: '调整后仅影响后续等级判定，不会回溯已有用户',
+          body: body,
+          width: 520,
+          confirmText: '保存配置',
+          onConfirm: function () {
+            const name = $('#lv-name').value.trim();
+            const requirement = $('#lv-requirement').value.trim();
+            const permission = $('#lv-permission').value.trim();
+            const modeInput = $('input[name="lv-mode"]:checked');
+            if (!name) { App.toast('请输入等级名称', 'warning'); return false; }
+            if (!requirement) { App.toast('请输入升级条件', 'warning'); return false; }
+            level.name = name;
+            level.requirement = requirement;
+            level.permission = permission;
+            level.mode = modeInput ? modeInput.value : level.mode;
+            App.toast('等级 L' + level.level + ' 配置已保存', 'success');
+            renderLevels();
+            renderRank();
+          }
+        });
+
+        $('#lv-mode-row').addEventListener('change', function (event) {
+          if (!event.target.closest('input[name="lv-mode"]')) return;
+          $$('#lv-mode-row .option-pill').forEach(function (pill) {
+            pill.classList.toggle('active', pill.querySelector('input') === event.target);
+          });
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#level-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action="edit-level"]');
+        if (!button) return;
+        const level = LEVELS.find(function (item) { return String(item.level) === button.getAttribute('data-level'); });
+        if (level) openLevelModal(level);
+      });
+
+      $('#rule-table').addEventListener('change', function (event) {
+        const input = event.target.closest('.js-rule-switch');
+        if (!input) return;
+        const rule = RULES.find(function (item) { return item.id === input.getAttribute('data-id'); });
+        if (!rule) return;
+        rule.enabled = input.checked;
+        App.toast('规则「' + rule.action + '」已' + (rule.enabled ? '启用' : '停用'), rule.enabled ? 'success' : 'info');
+      });
+
+      $('#points-tabs').addEventListener('click', function (event) {
+        const button = event.target.closest('.tab[data-tab]');
+        if (!button) return;
+        const tab = button.getAttribute('data-tab');
+        $$('#points-tabs .tab').forEach(function (item) { item.classList.toggle('active', item === button); });
+        $('#panel-logs').hidden = tab !== 'logs';
+        $('#panel-rank').hidden = tab !== 'rank';
+        if (tab === 'rank') renderRank();
+      });
+
+      /* ---------------------------------------------------------------
+         初始化
+         --------------------------------------------------------------- */
+      renderLevels();
+      renderRules();
+      renderLogs();
+      renderRank();
+    })();
+  </script>
+</body>
+</html>

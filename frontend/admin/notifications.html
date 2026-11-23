@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>消息模板与推送 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="notifications">
+    <!--
+      ======================================================================
+      页面：消息模板与推送
+      ----------------------------------------------------------------------
+      数据字段（NOTIFICATION_TEMPLATES）：
+        id / name / code / scene / channels(inbox|email|push) / enabled /
+        title / body / variables[]
+      关联数据：NOTIFICATION_GROUPS（用户组）、USERS（人群预估）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/notification-templates
+        PUT    /api/admin/notification-templates/{id}
+        PATCH  /api/admin/notification-templates/{id}/status { enabled }
+        POST   /api/admin/push/estimate { studentIdFrom, studentIdTo, groups, activeStatus }
+        POST   /api/admin/push          { title, content, audience, sendAt }
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">消息模板与推送</h1>
+        <p class="page-desc">维护站内信、邮件与推送模板，并向指定人群发送定向通知</p>
+      </div>
+    </div>
+
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">消息模板</div>
+          <div class="card-sub">模板变量会在发送时按用户与场景自动替换</div>
+        </div>
+        <div class="card-head-side">
+          <span class="text-sm muted" id="tpl-enabled-hint"></span>
+        </div>
+      </div>
+      <div id="tpl-table"></div>
+    </div>
+
+    <div class="notify-layout" style="margin-top:16px">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">定向推送</div>
+            <div class="card-sub">按学号、用户组与活跃状态圈选人群后发送通知</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="form-stack">
+            <div class="field">
+              <label class="label">人群筛选</label>
+              <div class="form-grid-2">
+                <div class="field">
+                  <label class="help-text" for="push-id-from">学号范围 · 起</label>
+                  <input class="control" id="push-id-from" type="text" inputmode="numeric" placeholder="如 20210001" autocomplete="off">
+                </div>
+                <div class="field">
+                  <label class="help-text" for="push-id-to">学号范围 · 止</label>
+                  <input class="control" id="push-id-to" type="text" inputmode="numeric" placeholder="如 20269999" autocomplete="off">
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label">用户组 <span class="help-text" style="font-weight:400">（可多选，留空表示不限）</span></label>
+              <div class="chips" id="push-groups">
+                <!-- 用户组选项由 NOTIFICATION_GROUPS 渲染 -->
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="push-active">活跃状态</label>
+              <select class="select" id="push-active">
+                <option value="all">不限</option>
+                <option value="7">近 7 天活跃</option>
+                <option value="30">近 30 天活跃</option>
+                <option value="dormant">沉睡用户（30 天未活跃）</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label class="label" for="push-title">推送标题</label>
+              <input class="control" id="push-title" type="text" maxlength="40" placeholder="请输入推送标题，不超过 40 字">
+            </div>
+
+            <div class="field">
+              <label class="label" for="push-content">推送内容</label>
+              <textarea class="control" id="push-content" rows="4" placeholder="请输入推送正文，支持换行"></textarea>
+            </div>
+
+            <div class="field">
+              <label class="label">发送时间</label>
+              <div class="option-row option-row-2" id="push-time-row">
+                <label class="option-pill active">
+                  <input type="radio" name="push-time" value="now" checked>
+                  <span>立即发送</span><span class="sub">确认后立即触达</span>
+                </label>
+                <label class="option-pill">
+                  <input type="radio" name="push-time" value="schedule">
+                  <span>定时发送</span><span class="sub">到达时间自动发送</span>
+                </label>
+              </div>
+              <div class="custom-duration" id="push-schedule-wrap" hidden>
+                <input class="control" id="push-schedule-at" type="datetime-local" aria-label="定时发送时间">
+                <span class="help-text">选择发送时间</span>
+              </div>
+            </div>
+
+            <div class="flex gap-2" style="justify-content:flex-end">
+              <button type="button" class="btn btn-secondary" id="push-preview-btn">发送预览</button>
+              <button type="button" class="btn btn-primary" id="push-send-btn">确认发送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="reach-panel">
+        <div>
+          <div class="reach-label">预计触达人数</div>
+          <div class="reach-number" id="reach-number">0</div>
+          <div class="reach-note" id="reach-note">请选择人群范围</div>
+        </div>
+        <div class="reach-rows" id="reach-rows"></div>
+        <div class="reach-divider"></div>
+        <div class="reach-foot">
+          预估基于当前筛选条件与用户偏好设置计算，实际触达可能因退订、邮箱失效等原因略有差异。
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('notifications');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const TEMPLATES = window.NOTIFICATION_TEMPLATES;
+      const GROUPS = window.NOTIFICATION_GROUPS;
+      const USERS = window.USERS;
+
+      const CHANNEL_META = {
+        inbox: { label: '站内信', icon: 'inbox' },
+        email: { label: '邮件', icon: 'mail' },
+        push: { label: '推送', icon: 'bell' }
+      };
+
+      const state = {
+        groups: []
+      };
+
+      let currentDrawer = null;
+
+      /* ---------------------------------------------------------------
+         模板列表
+         --------------------------------------------------------------- */
+      function channelIcons(channels, enabled) {
+        return '<div class="channel-group">' + Object.keys(CHANNEL_META).map(function (key) {
+          const meta = CHANNEL_META[key];
+          const active = channels.indexOf(key) !== -1 && enabled;
+          return '<span class="channel-icon ' + (active ? key : 'off') + '" title="' + meta.label + (channels.indexOf(key) !== -1 ? (active ? ' · 已启用' : ' · 已停用') : ' · 未配置') + '">' +
+            App.icon(meta.icon, 13) + '</span>';
+        }).join('') + '</div>';
+      }
+
+      function renderTemplates() {
+        const enabledCount = TEMPLATES.filter(function (template) { return template.enabled; }).length;
+        $('#tpl-enabled-hint').textContent = '已启用 ' + enabledCount + ' / ' + TEMPLATES.length + ' 个模板';
+
+        App.renderTable('#tpl-table', [
+          {
+            title: '模板名', width: '210px',
+            cell: function (template) {
+              return '<div class="tpl-name">' + esc(template.name) + '</div>' +
+                '<div class="tpl-code">' + esc(template.code) + '</div>';
+            }
+          },
+          {
+            title: '触发场景',
+            cell: function (template) { return '<span class="scene-text">' + esc(template.scene) + '</span>'; }
+          },
+          {
+            title: '渠道', width: '120px',
+            cell: function (template) { return channelIcons(template.channels, template.enabled); }
+          },
+          {
+            title: '启用', width: '80px',
+            cell: function (template) {
+              return '<label class="switch"><input type="checkbox" class="js-tpl-switch" data-id="' + template.id + '"' +
+                (template.enabled ? ' checked' : '') + ' aria-label="启用模板"><span class="switch-track"></span></label>';
+            }
+          },
+          {
+            title: '操作', align: 'right', width: '88px',
+            cell: function (template) {
+              return '<div class="table-actions">' +
+                '<button type="button" class="btn btn-secondary btn-sm" data-action="edit" data-id="' + template.id + '">编辑</button>' +
+                '</div>';
+            }
+          }
+        ], TEMPLATES, {
+          emptyText: '暂无消息模板',
+          emptyDesc: '新增模板后可在这里统一维护',
+          emptyIcon: 'bell'
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         模板编辑抽屉
+         --------------------------------------------------------------- */
+      function templateDrawerBody(template) {
+        return '<div class="form-stack">' +
+          '<div class="form-grid-2">' +
+          '<div class="field"><label class="label" for="tpl-name">模板名</label>' +
+          '<input class="control" id="tpl-name" type="text" maxlength="30" value="' + esc(template.name) + '"></div>' +
+          '<div class="field"><label class="label" for="tpl-scene">触发场景</label>' +
+          '<input class="control" id="tpl-scene" type="text" value="' + esc(template.scene) + '" readonly></div>' +
+          '</div>' +
+
+          '<div class="field"><label class="label">占位符变量</label>' +
+          '<div class="tpl-vars" id="tpl-vars">' + template.variables.map(function (name) {
+            return '<button type="button" class="tpl-var" data-var="' + esc(name) + '">' + esc(name) + '</button>';
+          }).join('') + '</div>' +
+          '<span class="help-text">点击变量插入到当前光标位置，发送时会替换为真实数据</span></div>' +
+
+          '<div class="field"><label class="label" for="tpl-title">通知标题</label>' +
+          '<input class="control" id="tpl-title" type="text" maxlength="50" value="' + esc(template.title) + '"></div>' +
+
+          '<div class="field"><label class="label" for="tpl-body">通知正文</label>' +
+          '<textarea class="control" id="tpl-body" rows="6">' + esc(template.body) + '</textarea>' +
+          '<span class="help-text">支持换行，变量需使用花括号包裹，例如 {nickname}</span></div>' +
+
+          '<div class="field"><div class="section-label"><span>通知预览</span><span class="count">站内信样式</span></div>' +
+          '<div class="notify-preview">' +
+          '<div class="notify-preview-card">' +
+          '<div class="notify-preview-top"><span class="notify-preview-app">' + App.icon('bell', 12) + '</span>' +
+          '<span>SDU Forum</span><span>·</span><span>刚刚</span></div>' +
+          '<div class="notify-preview-title" id="tpl-preview-title"></div>' +
+          '<div class="notify-preview-body" id="tpl-preview-body"></div>' +
+          '</div></div></div>' +
+          '</div>';
+      }
+
+      function highlightVars(text) {
+        return esc(text).replace(/\{[a-zA-Z]+\}/g, '<b>$&</b>');
+      }
+
+      function openTemplateDrawer(template) {
+        const footer = App.el('div', { class: 'flex gap-2', style: 'justify-content:flex-end;width:100%' });
+        const cancelBtn = App.el('button', { type: 'button', class: 'btn btn-secondary', text: '取消' });
+        const saveBtn = App.el('button', { type: 'button', class: 'btn btn-primary', text: '保存模板' });
+        footer.appendChild(cancelBtn);
+        footer.appendChild(saveBtn);
+
+        currentDrawer = App.drawer({
+          title: '编辑消息模板',
+          subtitle: template.name + ' · ' + template.code,
+          body: templateDrawerBody(template),
+          footer: footer,
+          width: 580,
+          onClose: function () { currentDrawer = null; }
+        });
+
+        cancelBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); });
+
+        const nameInput = $('#tpl-name');
+        const titleInput = $('#tpl-title');
+        const bodyInput = $('#tpl-body');
+        let focusField = titleInput;
+
+        function updatePreview() {
+          $('#tpl-preview-title').innerHTML = highlightVars(titleInput.value.trim()) || '通知标题预览';
+          $('#tpl-preview-body').innerHTML = highlightVars(bodyInput.value.trim()) || '通知正文预览';
+        }
+
+        titleInput.addEventListener('focus', function () { focusField = titleInput; });
+        bodyInput.addEventListener('focus', function () { focusField = bodyInput; });
+        titleInput.addEventListener('input', updatePreview);
+        bodyInput.addEventListener('input', updatePreview);
+
+        $('#tpl-vars').addEventListener('click', function (event) {
+          const button = event.target.closest('.tpl-var');
+          if (!button) return;
+          const token = button.getAttribute('data-var');
+          const field = focusField || titleInput;
+          const start = field.selectionStart == null ? field.value.length : field.selectionStart;
+          const end = field.selectionEnd == null ? field.value.length : field.selectionEnd;
+          field.value = field.value.slice(0, start) + token + field.value.slice(end);
+          const cursor = start + token.length;
+          field.focus();
+          field.setSelectionRange(cursor, cursor);
+          updatePreview();
+        });
+
+        saveBtn.addEventListener('click', function () {
+          const name = nameInput.value.trim();
+          const title = titleInput.value.trim();
+          const body = bodyInput.value.trim();
+          if (!name) { App.toast('请输入模板名', 'warning'); nameInput.focus(); return; }
+          if (!title) { App.toast('请输入通知标题', 'warning'); titleInput.focus(); return; }
+          if (!body) { App.toast('请输入通知正文', 'warning'); bodyInput.focus(); return; }
+          template.name = name;
+          template.title = title;
+          template.body = body;
+          App.toast('模板「' + name + '」已保存', 'success');
+          if (currentDrawer) currentDrawer.close();
+          renderTemplates();
+        });
+
+        updatePreview();
+      }
+
+      /* ---------------------------------------------------------------
+         定向推送：人群预估
+         --------------------------------------------------------------- */
+      function renderGroupChips() {
+        $('#push-groups').innerHTML = GROUPS.map(function (name) {
+          return '<button type="button" class="chip" data-group="' + esc(name) + '">' + esc(name) + '</button>';
+        }).join('');
+      }
+
+      function audience() {
+        const from = Number($('#push-id-from').value.trim()) || 0;
+        const to = Number($('#push-id-to').value.trim()) || 0;
+        const active = $('#push-active').value;
+        const now = Date.now();
+
+        return USERS.filter(function (user) {
+          const studentId = Number(user.studentId) || 0;
+          if (from && studentId < from) return false;
+          if (to && studentId > to) return false;
+
+          if (state.groups.length) {
+            const matched = state.groups.some(function (group) {
+              if (group === '2026 级新生') return user.grade === '2026级';
+              if (group === '毕业生') return user.grade === '2022级' || user.grade === '2021级';
+              if (group === '已认证用户') return user.verified;
+              if (group === '版主团队') return user.role === 'moderator' || user.role === 'admin';
+              if (group === '高活跃用户') return user.lastActiveAt >= now - 7 * 86400000;
+              if (group === '沉睡用户') return user.lastActiveAt <= now - 30 * 86400000;
+              return true;
+            });
+            if (!matched) return false;
+          }
+
+          if (active === '7' && user.lastActiveAt < now - 7 * 86400000) return false;
+          if (active === '30' && user.lastActiveAt < now - 30 * 86400000) return false;
+          if (active === 'dormant' && user.lastActiveAt > now - 30 * 86400000) return false;
+          return true;
+        });
+      }
+
+      function renderReach() {
+        const list = audience();
+        const total = list.length;
+        const verified = list.filter(function (user) { return user.verified; }).length;
+        const recent = list.filter(function (user) { return user.lastActiveAt >= Date.now() - 7 * 86400000; }).length;
+        const inbox = total;
+        const email = Math.round(verified * 0.94);
+        const push = Math.round(recent * 0.88);
+
+        $('#reach-number').textContent = App.fmtNum(total);
+        $('#reach-note').textContent = total
+          ? '覆盖全部注册用户的 ' + (total / USERS.length * 100).toFixed(1) + '%'
+          : '当前条件未匹配到用户';
+
+        $('#reach-rows').innerHTML =
+          '<div class="reach-row"><span class="reach-row-label"><span class="channel-icon inbox">' + App.icon('inbox', 13) + '</span>站内信</span><b>' + App.fmtNum(inbox) + '</b></div>' +
+          '<div class="reach-row"><span class="reach-row-label"><span class="channel-icon email">' + App.icon('mail', 13) + '</span>邮件</span><b>' + App.fmtNum(email) + '</b></div>' +
+          '<div class="reach-row"><span class="reach-row-label"><span class="channel-icon push">' + App.icon('bell', 13) + '</span>推送</span><b>' + App.fmtNum(push) + '</b></div>' +
+          '<div class="reach-divider"></div>' +
+          '<div class="reach-row"><span class="reach-row-label">已认证账号</span><b>' + App.fmtNum(verified) + '</b></div>' +
+          '<div class="reach-row"><span class="reach-row-label">近 7 天活跃</span><b>' + App.fmtNum(recent) + '</b></div>';
+      }
+
+      function audienceSummary() {
+        const parts = [];
+        const from = $('#push-id-from').value.trim();
+        const to = $('#push-id-to').value.trim();
+        if (from || to) parts.push('学号 ' + (from || '不限') + ' ~ ' + (to || '不限'));
+        else parts.push('全部学号');
+        if (state.groups.length) parts.push(state.groups.join('、'));
+        const active = $('#push-active');
+        parts.push(active.options[active.selectedIndex].textContent);
+        return parts.join(' · ');
+      }
+
+      /* ---------------------------------------------------------------
+         发送
+         --------------------------------------------------------------- */
+      function validatePush() {
+        const title = $('#push-title').value.trim();
+        const content = $('#push-content').value.trim();
+        if (!title) { App.toast('请输入推送标题', 'warning'); $('#push-title').focus(); return null; }
+        if (!content) { App.toast('请输入推送内容', 'warning'); $('#push-content').focus(); return null; }
+        const checked = $('input[name="push-time"]:checked');
+        const mode = checked ? checked.value : 'now';
+        let sendAt = Date.now();
+        if (mode === 'schedule') {
+          const value = $('#push-schedule-at').value;
+          sendAt = value ? new Date(value).getTime() : 0;
+          if (!sendAt) { App.toast('请选择定时发送时间', 'warning'); return null; }
+          if (sendAt <= Date.now()) { App.toast('定时发送时间需晚于当前时间', 'warning'); return null; }
+        }
+        const list = audience();
+        if (!list.length) { App.toast('当前筛选条件下没有可触达用户', 'warning'); return null; }
+        return { title: title, content: content, sendAt: sendAt, count: list.length, summary: audienceSummary() };
+      }
+
+      function previewModal(payload) {
+        const body = '<div class="form-stack">' +
+          '<div class="notify-preview">' +
+          '<div class="notify-preview-card">' +
+          '<div class="notify-preview-top"><span class="notify-preview-app">' + App.icon('bell', 12) + '</span>' +
+          '<span>SDU Forum</span><span>·</span><span>刚刚</span></div>' +
+          '<div class="notify-preview-title">' + esc(payload.title) + '</div>' +
+          '<div class="notify-preview-body">' + esc(payload.content) + '</div>' +
+          '</div></div>' +
+          '<div class="info-grid">' +
+          '<div class="info-item"><div class="info-label">目标人群</div><div class="info-value">' + esc(payload.summary) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">预计触达</div><div class="info-value">' + App.fmtNum(payload.count) + ' 人</div></div>' +
+          '<div class="info-item"><div class="info-label">发送时间</div><div class="info-value">' + (payload.sendAt - Date.now() > 60000 ? App.fmtDateTime(payload.sendAt) : '立即发送') + '</div></div>' +
+          '<div class="info-item"><div class="info-label">发送渠道</div><div class="info-value">站内信 / 邮件 / 推送</div></div>' +
+          '</div></div>';
+
+        App.modal({
+          title: '发送预览',
+          desc: '请确认通知内容与目标人群',
+          body: body,
+          width: 520,
+          confirmText: '确认发送',
+          onConfirm: function () {
+            sendPush(payload);
+          }
+        });
+      }
+
+      function sendPush(payload) {
+        const scheduled = payload.sendAt - Date.now() > 60000;
+        App.toast(scheduled
+          ? '已创建定时推送，将于 ' + App.fmtDateTime(payload.sendAt) + ' 触达 ' + App.fmtNum(payload.count) + ' 位用户'
+          : '已向 ' + App.fmtNum(payload.count) + ' 位用户发送定向推送', 'success');
+        $('#push-title').value = '';
+        $('#push-content').value = '';
+      }
+
+      function confirmSend() {
+        const payload = validatePush();
+        if (!payload) return;
+        App.modal({
+          title: '确认发送',
+          desc: '推送发出后无法撤回，请再次确认发送范围。',
+          body: '<div class="info-grid">' +
+            '<div class="info-item"><div class="info-label">推送标题</div><div class="info-value">' + esc(payload.title) + '</div></div>' +
+            '<div class="info-item"><div class="info-label">目标人群</div><div class="info-value">' + esc(payload.summary) + '</div></div>' +
+            '<div class="info-item"><div class="info-label">预计触达</div><div class="info-value">' + App.fmtNum(payload.count) + ' 人</div></div>' +
+            '<div class="info-item"><div class="info-label">发送时间</div><div class="info-value">' + (payload.sendAt - Date.now() > 60000 ? App.fmtDateTime(payload.sendAt) : '立即发送') + '</div></div>' +
+            '</div>',
+          width: 480,
+          confirmText: '确认发送',
+          onConfirm: function () { sendPush(payload); }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#tpl-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action="edit"]');
+        if (!button) return;
+        const template = TEMPLATES.find(function (item) { return item.id === button.getAttribute('data-id'); });
+        if (template) openTemplateDrawer(template);
+      });
+
+      $('#tpl-table').addEventListener('change', function (event) {
+        const input = event.target.closest('.js-tpl-switch');
+        if (!input) return;
+        const template = TEMPLATES.find(function (item) { return item.id === input.getAttribute('data-id'); });
+        if (!template) return;
+        template.enabled = input.checked;
+        App.toast('模板「' + template.name + '」已' + (template.enabled ? '启用' : '停用'), template.enabled ? 'success' : 'info');
+        renderTemplates();
+      });
+
+      $('#push-groups').addEventListener('click', function (event) {
+        const chip = event.target.closest('.chip[data-group]');
+        if (!chip) return;
+        const group = chip.getAttribute('data-group');
+        const index = state.groups.indexOf(group);
+        if (index === -1) state.groups.push(group);
+        else state.groups.splice(index, 1);
+        chip.classList.toggle('active', index === -1);
+        renderReach();
+      });
+
+      $('#push-time-row').addEventListener('change', function (event) {
+        if (!event.target.closest('input[name="push-time"]')) return;
+        $$('#push-time-row .option-pill').forEach(function (pill) {
+          pill.classList.toggle('active', pill.querySelector('input') === event.target);
+        });
+        $('#push-schedule-wrap').hidden = event.target.value !== 'schedule';
+      });
+
+      ['#push-id-from', '#push-id-to'].forEach(function (selector) {
+        $(selector).addEventListener('input', App.debounce(renderReach, 260));
+      });
+      $('#push-active').addEventListener('change', renderReach);
+
+      $('#push-preview-btn').addEventListener('click', function () {
+        const payload = validatePush();
+        if (payload) previewModal(payload);
+      });
+
+      $('#push-send-btn').addEventListener('click', confirmSend);
+
+      /* ---------------------------------------------------------------
+         初始化
+         --------------------------------------------------------------- */
+      renderGroupChips();
+      renderTemplates();
+      renderReach();
+
+      const defaultSchedule = new Date(Date.now() + 2 * 3600000);
+      $('#push-schedule-at').value = App.fmtDate(defaultSchedule, 'YYYY-MM-DD') + 'T' + App.fmtDate(defaultSchedule, 'HH:mm');
+    })();
+  </script>
+</body>
+</html>

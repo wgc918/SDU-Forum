@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>公告管理 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="announcements">
+    <!--
+      ======================================================================
+      页面：公告管理
+      ----------------------------------------------------------------------
+      数据字段（ANNOUNCEMENTS）：
+        id / title / summary / content(纯文本，支持 **加粗**) /
+        positions(banner|modal|sidebar 数组) / scope({ type:'all'|'groups', groups:[] }) /
+        startAt / endAt / enabled / creator / createdAt / views
+      关联数据：ANNOUNCEMENT_GROUPS（接收用户组字典）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/announcements?page=1&pageSize=10&position=&status=&keyword=
+        POST   /api/admin/announcements            { title, content, positions, scope, startAt, endAt, enabled }
+        PUT    /api/admin/announcements/{id}
+        PATCH  /api/admin/announcements/{id}/status { enabled }
+        DELETE /api/admin/announcements/{id}
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">公告管理</h1>
+        <p class="page-desc">配置全站公告的投放位置、接收范围与定时投放计划</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-primary" id="new-ann-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="M12 5v14"/>
+          </svg>
+          新建公告
+        </button>
+      </div>
+    </div>
+
+    <div class="card filter-card">
+      <div class="filter-field" style="flex:1;min-width:220px">
+        <label class="filter-label" for="ann-keyword">搜索公告</label>
+        <div class="input-icon">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input class="control" id="ann-keyword" type="text" placeholder="按标题或创建人搜索" autocomplete="off">
+        </div>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="ann-position">投放位置</label>
+        <select class="select" id="ann-position">
+          <option value="">全部位置</option>
+          <option value="banner">顶部横幅</option>
+          <option value="modal">弹窗</option>
+          <option value="sidebar">侧边栏</option>
+        </select>
+      </div>
+      <div class="filter-field" style="min-width:auto">
+        <label class="filter-label">投放状态</label>
+        <div class="segmented" id="ann-status-seg" role="group" aria-label="投放状态">
+          <button type="button" class="active" data-status="">全部</button>
+          <button type="button" data-status="scheduled">未开始</button>
+          <button type="button" data-status="active">投放中</button>
+          <button type="button" data-status="ended">已结束</button>
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-secondary" id="ann-reset-btn">重置</button>
+      </div>
+    </div>
+
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">公告列表</div>
+          <div class="card-sub" id="ann-count">共 0 条</div>
+        </div>
+        <div class="card-head-side">
+          <span class="text-sm muted" id="ann-active-hint"></span>
+        </div>
+      </div>
+      <div id="ann-table"></div>
+      <div id="ann-pagination" style="padding:0 20px 16px"></div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('announcements');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const ANNOUNCEMENTS = window.ANNOUNCEMENTS;
+      const GROUPS = window.ANNOUNCEMENT_GROUPS;
+
+      const POSITION_META = {
+        banner: { label: '顶部横幅', className: 'pos-banner', desc: '全站页面顶部通栏' },
+        modal: { label: '弹窗', className: 'pos-modal', desc: '用户首次进入时弹出' },
+        sidebar: { label: '侧边栏', className: 'pos-sidebar', desc: '首页右侧公告卡片' }
+      };
+
+      const STATUS_META = {
+        scheduled: { label: '未开始', tone: 'warning' },
+        active: { label: '投放中', tone: 'success' },
+        ended: { label: '已结束', tone: 'neutral' },
+        disabled: { label: '已停用', tone: 'neutral' }
+      };
+
+      const state = {
+        keyword: '',
+        position: '',
+        status: '',
+        page: 1,
+        pageSize: 10
+      };
+
+      let currentDrawer = null;
+
+      function statusOf(item) {
+        const now = Date.now();
+        if (now < item.startAt) return 'scheduled';
+        if (now > item.endAt) return 'ended';
+        return 'active';
+      }
+
+      function displayStatusOf(item) {
+        return item.enabled ? statusOf(item) : 'disabled';
+      }
+
+      function getFiltered() {
+        const keyword = state.keyword.trim().toLowerCase();
+        return ANNOUNCEMENTS.filter(function (item) {
+          if (state.position && item.positions.indexOf(state.position) === -1) return false;
+          if (state.status) {
+            if (state.status === 'active') {
+              if (!item.enabled || statusOf(item) !== 'active') return false;
+            } else if (statusOf(item) !== state.status) {
+              return false;
+            }
+          }
+          if (keyword) {
+            const text = (item.title + ' ' + item.creator).toLowerCase();
+            if (text.indexOf(keyword) === -1) return false;
+          }
+          return true;
+        }).sort(function (a, b) { return b.createdAt - a.createdAt; });
+      }
+
+      function positionPills(positions) {
+        return '<div class="pos-pills">' + positions.map(function (key) {
+          const meta = POSITION_META[key];
+          return meta ? '<span class="pos-pill ' + meta.className + '">' + meta.label + '</span>' : '';
+        }).join('') + '</div>';
+      }
+
+      function scopeCell(item) {
+        if (!item.scope || item.scope.type === 'all') {
+          return '<div class="ann-scope">全站用户</div>';
+        }
+        return '<div class="ann-scope">指定用户组' +
+          '<div class="groups" title="' + esc(item.scope.groups.join('、')) + '">' + esc(item.scope.groups.join('、')) + '</div>' +
+          '</div>';
+      }
+
+      function timeCell(timestamp) {
+        return '<div class="ann-time">' + App.fmtDate(timestamp, 'YYYY-MM-DD') +
+          '<div class="cell-sub">' + App.fmtDate(timestamp, 'HH:mm') + '</div></div>';
+      }
+
+      /* ---------------------------------------------------------------
+         表格
+         --------------------------------------------------------------- */
+      function renderTable() {
+        const rows = getFiltered();
+        const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const pageRows = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+        const activeCount = ANNOUNCEMENTS.filter(function (item) { return statusOf(item) === 'active' && item.enabled; }).length;
+
+        $('#ann-count').textContent = '共 ' + App.fmtNum(rows.length) + ' 条' +
+          (rows.length !== ANNOUNCEMENTS.length ? '（全部 ' + ANNOUNCEMENTS.length + ' 条）' : '');
+        $('#ann-active-hint').textContent = '当前投放中 ' + activeCount + ' 条';
+
+        App.renderTable('#ann-table', [
+          {
+            title: '标题',
+            cell: function (item) {
+              return '<div class="ann-title-cell"><div class="cell-main">' + esc(item.title) + '</div>' +
+                '<div class="cell-sub">' + esc(item.summary) + '</div></div>';
+            }
+          },
+          {
+            title: '投放位置', width: '124px',
+            cell: function (item) { return positionPills(item.positions); }
+          },
+          {
+            title: '接收范围', width: '146px',
+            cell: function (item) { return scopeCell(item); }
+          },
+          {
+            title: '开始时间', width: '116px',
+            cell: function (item) { return timeCell(item.startAt); }
+          },
+          {
+            title: '结束时间', width: '116px',
+            cell: function (item) { return timeCell(item.endAt); }
+          },
+          {
+            title: '状态', width: '104px',
+            cell: function (item) {
+              const key = displayStatusOf(item);
+              const meta = STATUS_META[key];
+              return App.pill(meta.label, meta.tone, key === 'active');
+            }
+          },
+          {
+            title: '创建人', width: '88px',
+            cell: function (item) { return '<span class="text-md">' + esc(item.creator) + '</span>'; }
+          },
+          {
+            title: '操作', align: 'right', width: '112px',
+            cell: function (item) {
+              return '<div class="table-actions">' +
+                '<button type="button" class="icon-btn" data-action="edit" data-id="' + item.id + '" title="编辑公告" aria-label="编辑公告">' + App.icon('edit', 16) + '</button>' +
+                '<button type="button" class="icon-btn" data-action="toggle" data-id="' + item.id + '" title="' + (item.enabled ? '停用' : '启用') + '" aria-label="' + (item.enabled ? '停用' : '启用') + '">' + App.icon(item.enabled ? 'eye-off' : 'eye', 16) + '</button>' +
+                '<button type="button" class="icon-btn danger" data-action="delete" data-id="' + item.id + '" title="删除公告" aria-label="删除公告">' + App.icon('trash', 16) + '</button>' +
+                '</div>';
+            }
+          }
+        ], pageRows, {
+          emptyText: '没有匹配的公告',
+          emptyDesc: '请调整关键词或筛选条件后重试',
+          emptyIcon: 'megaphone',
+          onRowClick: function (item) { openDrawer(item); }
+        });
+
+        App.renderPagination('#ann-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: rows.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderTable();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         新建 / 编辑抽屉
+         --------------------------------------------------------------- */
+      function toInputValue(timestamp) {
+        return App.fmtDate(timestamp, 'YYYY-MM-DD') + 'T' + App.fmtDate(timestamp, 'HH:mm');
+      }
+
+      function renderRichText(text) {
+        return esc(text).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      }
+
+      function drawerBody(item) {
+        const isEdit = !!item;
+        const startAt = isEdit ? item.startAt : Date.now() + 3600000;
+        const endAt = isEdit ? item.endAt : Date.now() + 15 * 86400000;
+        const positions = isEdit ? item.positions.slice() : ['banner'];
+        const scopeType = isEdit ? item.scope.type : 'all';
+        const scopeGroups = isEdit ? item.scope.groups.slice() : [];
+
+        return '<div class="form-stack">' +
+          '<div class="field"><label class="label" for="ann-title">公告标题</label>' +
+          '<input class="control" id="ann-title" type="text" maxlength="60" placeholder="请输入公告标题" value="' + esc(isEdit ? item.title : '') + '">' +
+          '<span class="help-text">建议控制在 30 字以内，将展示在顶部横幅与弹窗标题区</span></div>' +
+
+          '<div class="field"><label class="label" for="ann-content">公告正文</label>' +
+          '<textarea class="control" id="ann-content" rows="6" placeholder="输入公告正文，支持换行与 **加粗** 语法">' + esc(isEdit ? item.content : '') + '</textarea>' +
+          '<span class="help-text">简化富文本：换行即分段，使用 **文字** 标记加粗，右侧预览实时呈现</span></div>' +
+
+          '<div class="field"><label class="label">投放位置（可多选）</label>' +
+          '<div class="option-row option-row-3" id="ann-position-row">' +
+          Object.keys(POSITION_META).map(function (key) {
+            const meta = POSITION_META[key];
+            const checked = positions.indexOf(key) !== -1;
+            return '<label class="option-pill' + (checked ? ' active' : '') + '">' +
+              '<input type="checkbox" name="ann-position" value="' + key + '"' + (checked ? ' checked' : '') + '>' +
+              '<span>' + meta.label + '</span><span class="sub">' + meta.desc + '</span></label>';
+          }).join('') +
+          '</div></div>' +
+
+          '<div class="field"><label class="label">接收范围</label>' +
+          '<div class="option-row option-row-2" id="ann-scope-row">' +
+          '<label class="option-pill' + (scopeType === 'all' ? ' active' : '') + '">' +
+          '<input type="radio" name="ann-scope" value="all"' + (scopeType === 'all' ? ' checked' : '') + '>' +
+          '<span>全站用户</span><span class="sub">所有注册用户可见</span></label>' +
+          '<label class="option-pill' + (scopeType === 'groups' ? ' active' : '') + '">' +
+          '<input type="radio" name="ann-scope" value="groups"' + (scopeType === 'groups' ? ' checked' : '') + '>' +
+          '<span>指定用户组</span><span class="sub">按用户组定向投放</span></label>' +
+          '</div>' +
+          '<div id="ann-groups-wrap" style="margin-top:8px"' + (scopeType === 'groups' ? '' : ' hidden') + '>' +
+          '<div class="check-grid">' + GROUPS.map(function (name) {
+            const checked = scopeGroups.indexOf(name) !== -1;
+            return '<label class="checkbox-label"><input type="checkbox" class="checkbox js-ann-group" value="' + esc(name) + '"' + (checked ? ' checked' : '') + '>' +
+              '<span>' + esc(name) + '</span></label>';
+          }).join('') + '</div></div></div>' +
+
+          '<div class="field"><label class="label">定时投放</label>' +
+          '<div class="form-grid-2">' +
+          '<div class="field"><label class="help-text" for="ann-start">开始时间</label>' +
+          '<input class="control" id="ann-start" type="datetime-local" value="' + toInputValue(startAt) + '"></div>' +
+          '<div class="field"><label class="help-text" for="ann-end">结束时间</label>' +
+          '<input class="control" id="ann-end" type="datetime-local" value="' + toInputValue(endAt) + '"></div>' +
+          '</div>' +
+          '<span class="help-text">到达开始时间后自动投放，超过结束时间后自动下线</span></div>' +
+
+          '<div class="flex items-center between" style="padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-control);background:var(--bg-page)">' +
+          '<div><div class="label" style="margin:0">启用公告</div><div class="help-text">关闭后公告不会被投放，可随时重新启用</div></div>' +
+          '<label class="switch"><input type="checkbox" id="ann-enabled"' + (!isEdit || item.enabled ? ' checked' : '') + '>' +
+          '<span class="switch-track"></span></label></div>' +
+
+          '<div class="field"><div class="section-label"><span>投放预览</span><span class="count" id="ann-preview-meta"></span></div>' +
+          '<div class="ann-preview">' +
+          '<div class="ann-preview-head">' + App.icon('eye', 14) + '<span>预览 · <b id="ann-preview-position">顶部横幅</b></span></div>' +
+          '<div class="ann-preview-body">' +
+          '<div class="ann-preview-badge">' + App.icon('megaphone', 12) + ' 社区公告</div>' +
+          '<div class="ann-preview-title" id="ann-preview-title">公告标题</div>' +
+          '<div class="ann-preview-content" id="ann-preview-content">公告正文预览</div>' +
+          '<div class="ann-preview-foot"><span id="ann-preview-scope">全站用户</span><span>SDU Forum</span></div>' +
+          '</div></div></div>' +
+          '</div>';
+      }
+
+      function openDrawer(source) {
+        const isEdit = !!source;
+        const body = drawerBody(source);
+
+        const footer = App.el('div', { class: 'flex gap-2', style: 'justify-content:flex-end;width:100%' });
+        const cancelBtn = App.el('button', { type: 'button', class: 'btn btn-secondary', text: '取消' });
+        const saveBtn = App.el('button', { type: 'button', class: 'btn btn-primary', text: isEdit ? '保存修改' : '保存并投放' });
+        footer.appendChild(cancelBtn);
+        footer.appendChild(saveBtn);
+
+        currentDrawer = App.drawer({
+          title: isEdit ? '编辑公告' : '新建公告',
+          subtitle: isEdit ? 'NID ' + source.id.toUpperCase() : '填写公告内容并设置投放计划',
+          body: body,
+          footer: footer,
+          width: 640,
+          onClose: function () { currentDrawer = null; }
+        });
+
+        cancelBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); });
+
+        const titleInput = $('#ann-title');
+        const contentInput = $('#ann-content');
+        const startInput = $('#ann-start');
+        const endInput = $('#ann-end');
+        const enabledInput = $('#ann-enabled');
+        const groupsWrap = $('#ann-groups-wrap');
+
+        function selectedPositions() {
+          return $$('#ann-position-row input:checked').map(function (input) { return input.value; });
+        }
+
+        function scopeType() {
+          const checked = $('input[name="ann-scope"]:checked');
+          return checked ? checked.value : 'all';
+        }
+
+        function selectedGroups() {
+          return $$('.js-ann-group:checked').map(function (input) { return input.value; });
+        }
+
+        function updatePreview() {
+          const positionKeys = selectedPositions();
+          $('#ann-preview-position').textContent = positionKeys.length
+            ? positionKeys.map(function (key) { return POSITION_META[key].label; }).join(' / ')
+            : '未选择投放位置';
+          $('#ann-preview-title').textContent = titleInput.value.trim() || '公告标题';
+          $('#ann-preview-content').innerHTML = renderRichText(contentInput.value.trim()) || '公告正文预览';
+          $('#ann-preview-scope').textContent = scopeType() === 'all'
+            ? '全站用户'
+            : (selectedGroups().length ? selectedGroups().join('、') : '未选择用户组');
+          $('#ann-preview-meta').textContent = enabledInput.checked ? '投放已启用' : '投放已停用';
+        }
+
+        $('#ann-position-row').addEventListener('change', function (event) {
+          if (!event.target.closest('input[name="ann-position"]')) return;
+          const pill = event.target.closest('.option-pill');
+          if (pill) pill.classList.toggle('active', event.target.checked);
+          updatePreview();
+        });
+
+        $('#ann-scope-row').addEventListener('change', function (event) {
+          if (!event.target.closest('input[name="ann-scope"]')) return;
+          $$('#ann-scope-row .option-pill').forEach(function (pill) {
+            pill.classList.toggle('active', pill.querySelector('input') === event.target);
+          });
+          groupsWrap.hidden = event.target.value !== 'groups';
+          updatePreview();
+        });
+
+        groupsWrap.addEventListener('change', updatePreview);
+        $('#ann-title').addEventListener('input', updatePreview);
+        $('#ann-content').addEventListener('input', updatePreview);
+        enabledInput.addEventListener('change', updatePreview);
+
+        saveBtn.addEventListener('click', function () {
+          const title = titleInput.value.trim();
+          const content = contentInput.value.trim();
+          const positions = selectedPositions();
+          const startAt = new Date(startInput.value).getTime();
+          const endAt = new Date(endInput.value).getTime();
+          const groups = selectedGroups();
+
+          if (!title) { App.toast('请输入公告标题', 'warning'); titleInput.focus(); return; }
+          if (!content) { App.toast('请输入公告正文', 'warning'); contentInput.focus(); return; }
+          if (!positions.length) { App.toast('请至少选择一个投放位置', 'warning'); return; }
+          if (!startAt || !endAt) { App.toast('请设置完整的投放起止时间', 'warning'); return; }
+          if (endAt <= startAt) { App.toast('结束时间需晚于开始时间', 'warning'); return; }
+          if (scopeType() === 'groups' && !groups.length) { App.toast('请至少选择一个接收用户组', 'warning'); return; }
+
+          const payload = {
+            title: title,
+            summary: content.replace(/\*\*/g, '').replace(/\n+/g, ' ').slice(0, 60),
+            content: content,
+            positions: positions,
+            scope: { type: scopeType(), groups: scopeType() === 'groups' ? groups : [] },
+            startAt: startAt,
+            endAt: endAt,
+            enabled: enabledInput.checked
+          };
+
+          if (isEdit) {
+            Object.assign(source, payload);
+            App.toast('公告「' + title + '」已更新', 'success');
+          } else {
+            ANNOUNCEMENTS.unshift(Object.assign({
+              id: 'n' + (ANNOUNCEMENTS.length + 1),
+              creator: '超级管理员',
+              author: '超级管理员',
+              views: 0,
+              createdAt: Date.now(),
+              publishedAt: startAt <= Date.now() ? startAt : null
+            }, payload));
+            App.toast('公告「' + title + '」已创建', 'success');
+          }
+
+          if (currentDrawer) currentDrawer.close();
+          renderTable();
+        });
+
+        updatePreview();
+      }
+
+      /* ---------------------------------------------------------------
+         删除 / 启停
+         --------------------------------------------------------------- */
+      function removeAnnouncement(item) {
+        App.modal({
+          title: '删除公告',
+          desc: '删除后该公告将立即下线且不可恢复，确定要继续吗？',
+          body: '<div class="text-md muted">目标公告：<b>' + esc(item.title) + '</b></div>',
+          danger: true,
+          confirmText: '确认删除',
+          onConfirm: function () {
+            const index = ANNOUNCEMENTS.indexOf(item);
+            if (index !== -1) ANNOUNCEMENTS.splice(index, 1);
+            App.toast('公告已删除', 'success');
+            renderTable();
+          }
+        });
+      }
+
+      function toggleAnnouncement(item) {
+        item.enabled = !item.enabled;
+        App.toast('已' + (item.enabled ? '启用' : '停用') + '「' + item.title + '」', item.enabled ? 'success' : 'info');
+        renderTable();
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#new-ann-btn').addEventListener('click', function () { openDrawer(null); });
+
+      $('#ann-keyword').addEventListener('input', App.debounce(function () {
+        state.keyword = this.value;
+        state.page = 1;
+        renderTable();
+      }, 220));
+
+      $('#ann-position').addEventListener('change', function () {
+        state.position = this.value;
+        state.page = 1;
+        renderTable();
+      });
+
+      $('#ann-status-seg').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-status]');
+        if (!button) return;
+        state.status = button.getAttribute('data-status');
+        state.page = 1;
+        $$('#ann-status-seg button').forEach(function (item) { item.classList.toggle('active', item === button); });
+        renderTable();
+      });
+
+      $('#ann-reset-btn').addEventListener('click', function () {
+        state.keyword = '';
+        state.position = '';
+        state.status = '';
+        state.page = 1;
+        $('#ann-keyword').value = '';
+        $('#ann-position').value = '';
+        $$('#ann-status-seg button').forEach(function (item) {
+          item.classList.toggle('active', item.getAttribute('data-status') === '');
+        });
+        renderTable();
+        App.toast('筛选条件已重置', 'info');
+      });
+
+      $('#ann-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        event.stopPropagation();
+        const item = ANNOUNCEMENTS.find(function (record) { return record.id === button.getAttribute('data-id'); });
+        if (!item) return;
+        const action = button.getAttribute('data-action');
+        if (action === 'edit') openDrawer(item);
+        else if (action === 'toggle') toggleAnnouncement(item);
+        else if (action === 'delete') removeAnnouncement(item);
+      });
+
+      renderTable();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>推荐位与运营位 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="recommendations">
+    <!--
+      ======================================================================
+      页面：推荐位与运营位
+      ----------------------------------------------------------------------
+      数据字段（RECOMMENDATION_META / RECOMMENDATIONS）：
+        key(global|category|carousel|sidebar) / label / desc
+        RECOMMENDATIONS[key][]：id / postId / title / authorName / board /
+        viewCount / likeCount / commentCount / startAt / endAt / order
+      关联数据：POSTS（选帖池）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/recommendations?position=global
+        POST   /api/admin/recommendations  { position, postIds[], startAt, endAt }
+        PUT    /api/admin/recommendations/order { position, ids[] }
+        DELETE /api/admin/recommendations/{id}
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">推荐位与运营位</h1>
+        <p class="page-desc">管理全站置顶、分类置顶、首页轮播与侧边推荐，拖拽即可调整展示顺序</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-primary" id="add-rec-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="M12 5v14"/>
+          </svg>
+          添加推荐
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" style="flex-wrap:wrap;gap:10px">
+        <div class="rec-tabs" id="rec-tabs" role="tablist"></div>
+        <div class="card-head-side">
+          <span class="text-sm muted">拖拽左侧手柄调整顺序，保存后即时生效</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="rec-desc" id="rec-desc" style="margin-bottom:12px"></div>
+        <div class="rec-list" id="rec-list"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('recommendations');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const META = window.RECOMMENDATION_META;
+      const DATA = window.RECOMMENDATIONS;
+      const POSTS = window.POSTS;
+
+      const state = { position: META[0].key };
+      let dragIndex = -1;
+
+      const GRIP_SVG = '<svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor" aria-hidden="true">' +
+        '<circle cx="4" cy="4" r="1.4"/><circle cx="10" cy="4" r="1.4"/>' +
+        '<circle cx="4" cy="9" r="1.4"/><circle cx="10" cy="9" r="1.4"/>' +
+        '<circle cx="4" cy="14" r="1.4"/><circle cx="10" cy="14" r="1.4"/></svg>';
+
+      function metaOf(key) {
+        return META.find(function (item) { return item.key === key; }) || META[0];
+      }
+
+      function listOf() {
+        return DATA[state.position] || [];
+      }
+
+      function periodText(item) {
+        const now = Date.now();
+        let note = '进行中';
+        let tone = '';
+        if (now < item.startAt) { note = '未开始'; tone = 'style="color:var(--warning-text)"'; }
+        else if (now > item.endAt) { note = '已结束'; tone = 'style="color:var(--danger-text)"'; }
+        else {
+          const days = Math.max(1, Math.ceil((item.endAt - now) / 86400000));
+          note = '剩余 ' + days + ' 天';
+        }
+        return '<div class="cell-sub">' + App.fmtDate(item.startAt, 'YYYY-MM-DD') + ' ~ ' + App.fmtDate(item.endAt, 'YYYY-MM-DD') + '</div>' +
+          '<div ' + tone + '>' + note + '</div>';
+      }
+
+      /* ---------------------------------------------------------------
+         Tabs / 列表
+         --------------------------------------------------------------- */
+      function renderTabs() {
+        $('#rec-tabs').innerHTML = META.map(function (meta) {
+          const count = (DATA[meta.key] || []).length;
+          return '<button type="button" class="rec-tab' + (meta.key === state.position ? ' active' : '') + '" data-position="' + meta.key + '" role="tab">' +
+            esc(meta.label) + '<span class="rec-count">' + count + '</span></button>';
+        }).join('');
+        $('#rec-desc').textContent = metaOf(state.position).desc + ' · 共 ' + listOf().length + ' 条';
+      }
+
+      function renderList() {
+        const list = listOf();
+        if (!list.length) {
+          $('#rec-list').innerHTML = '<div class="rec-empty">' +
+            App.emptyHTML('该位置暂无推荐内容', '点击右上角「添加推荐」从帖子库中选择', 'grid') + '</div>';
+          return;
+        }
+
+        $('#rec-list').innerHTML = list.map(function (item, index) {
+          return '<div class="rec-item" draggable="true" data-index="' + index + '" data-id="' + item.id + '">' +
+            '<span class="rec-handle" title="拖拽排序" aria-hidden="true">' + GRIP_SVG + '</span>' +
+            '<span class="rec-order">' + (index + 1) + '</span>' +
+            '<div class="rec-main">' +
+            '<div class="rec-title" title="' + esc(item.title) + '">' + esc(item.title) + '</div>' +
+            '<div class="rec-meta">' +
+            '<span>' + esc(item.authorName) + '</span><span>·</span>' +
+            '<span>' + esc(item.board) + '</span><span>·</span>' +
+            '<span>' + esc(item.tagName) + '</span>' +
+            '</div></div>' +
+            '<div class="rec-stats">' +
+            '<div class="rec-stat"><b>' + App.fmtNum(item.viewCount) + '</b><span>浏览</span></div>' +
+            '<div class="rec-stat"><b>' + App.fmtNum(item.likeCount) + '</b><span>点赞</span></div>' +
+            '<div class="rec-stat"><b>' + App.fmtNum(item.commentCount) + '</b><span>评论</span></div>' +
+            '</div>' +
+            '<div class="rec-period">' + periodText(item) + '</div>' +
+            '<button type="button" class="icon-btn rec-remove" data-action="remove" data-id="' + item.id + '" title="移除推荐" aria-label="移除推荐">' + App.icon('x', 16) + '</button>' +
+            '</div>';
+        }).join('');
+      }
+
+      function renderAll() {
+        renderTabs();
+        renderList();
+      }
+
+      /* ---------------------------------------------------------------
+         拖拽排序
+         --------------------------------------------------------------- */
+      function clearDragState() {
+        $$('#rec-list .rec-item').forEach(function (item) {
+          item.classList.remove('dragging', 'drag-over');
+        });
+      }
+
+      function bindDrag() {
+        const list = $('#rec-list');
+
+        list.addEventListener('dragstart', function (event) {
+          const item = event.target.closest('.rec-item');
+          if (!item) return;
+          dragIndex = Number(item.getAttribute('data-index'));
+          item.classList.add('dragging');
+          event.dataTransfer.effectAllowed = 'move';
+          try { event.dataTransfer.setData('text/plain', String(dragIndex)); } catch (error) { /* 兼容部分浏览器 */ }
+        });
+
+        list.addEventListener('dragover', function (event) {
+          const item = event.target.closest('.rec-item');
+          if (!item || dragIndex < 0) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          $$('#rec-list .rec-item').forEach(function (node) {
+            node.classList.toggle('drag-over', node === item && Number(node.getAttribute('data-index')) !== dragIndex);
+          });
+        });
+
+        list.addEventListener('dragleave', function (event) {
+          const item = event.target.closest('.rec-item');
+          if (item) item.classList.remove('drag-over');
+        });
+
+        list.addEventListener('drop', function (event) {
+          const item = event.target.closest('.rec-item');
+          if (!item || dragIndex < 0) return;
+          event.preventDefault();
+          const targetIndex = Number(item.getAttribute('data-index'));
+          if (targetIndex !== dragIndex) {
+            const listData = listOf();
+            const moved = listData.splice(dragIndex, 1)[0];
+            listData.splice(targetIndex, 0, moved);
+            listData.forEach(function (record, index) { record.order = index + 1; });
+            App.toast('排序已更新', 'success');
+          }
+          dragIndex = -1;
+          renderAll();
+        });
+
+        list.addEventListener('dragend', function () {
+          dragIndex = -1;
+          clearDragState();
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         添加推荐
+         --------------------------------------------------------------- */
+      function candidatePosts() {
+        const existing = {};
+        listOf().forEach(function (item) { existing[item.postId] = true; });
+        return POSTS.filter(function (post) {
+          return post.status === 'published' && !existing[post.id];
+        });
+      }
+
+      function openPicker() {
+        let selected = {};
+        let keyword = '';
+        const candidates = candidatePosts();
+
+        const body = '<div class="rec-picker">' +
+          '<div class="rec-search">' + App.icon('search', 16) +
+          '<input class="control" id="rec-search" type="text" placeholder="搜索帖子标题、作者或标签" autocomplete="off"></div>' +
+          '<div class="flex items-center between">' +
+          '<span class="rec-selected-count">已选 <b id="rec-selected-count">0</b> 篇</span>' +
+          '<span class="text-sm muted">推荐位：' + esc(metaOf(state.position).label) + '</span></div>' +
+          '<div class="rec-pick-list" id="rec-pick-list"></div>' +
+          '<div class="form-grid-2">' +
+          '<div class="field"><label class="help-text" for="rec-start">生效开始时间</label>' +
+          '<input class="control" id="rec-start" type="datetime-local"></div>' +
+          '<div class="field"><label class="help-text" for="rec-end">生效结束时间</label>' +
+          '<input class="control" id="rec-end" type="datetime-local"></div>' +
+          '</div></div>';
+
+        function renderPicks() {
+          const key = keyword.trim().toLowerCase();
+          const matches = candidates.filter(function (post) {
+            if (!key) return true;
+            return (post.title + ' ' + post.authorName + ' ' + post.tagName + ' ' + post.board).toLowerCase().indexOf(key) !== -1;
+          }).slice(0, 60);
+
+          $('#rec-pick-list').innerHTML = matches.length
+            ? matches.map(function (post) {
+                const checked = !!selected[post.id];
+                return '<label class="rec-pick' + (checked ? ' checked' : '') + '" data-id="' + post.id + '">' +
+                  '<input type="checkbox" class="checkbox"' + (checked ? ' checked' : '') + '>' +
+                  '<div class="rec-pick-main"><div class="rec-pick-title">' + esc(post.title) + '</div>' +
+                  '<div class="rec-pick-meta">' + esc(post.authorName) + ' · ' + esc(post.board) + ' · ' +
+                  esc(post.tagName) + ' · ' + App.fmtDate(post.createdAt, 'YYYY-MM-DD') + '</div></div>' +
+                  '<span class="text-sm muted">' + App.fmtNum(post.viewCount) + ' 浏览</span>' +
+                  '</label>';
+              }).join('')
+            : '<div class="rec-pick-empty">没有匹配的帖子，请更换关键词</div>';
+
+          const count = Object.keys(selected).length;
+          $('#rec-selected-count').textContent = count;
+        }
+
+        function updateCount() {
+          $('#rec-selected-count').textContent = Object.keys(selected).length;
+        }
+
+        App.modal({
+          title: '添加推荐',
+          desc: '勾选需要推荐的帖子，并设置生效时间段',
+          body: body,
+          width: 620,
+          confirmText: '添加所选',
+          onConfirm: function () {
+            const ids = Object.keys(selected);
+            if (!ids.length) { App.toast('请至少选择一篇帖子', 'warning'); return false; }
+            const startAt = new Date($('#rec-start').value).getTime();
+            const endAt = new Date($('#rec-end').value).getTime();
+            if (!startAt || !endAt) { App.toast('请设置完整的生效时间', 'warning'); return false; }
+            if (endAt <= startAt) { App.toast('结束时间需晚于开始时间', 'warning'); return false; }
+
+            const target = listOf();
+            ids.forEach(function (id) {
+              const post = POSTS.find(function (item) { return item.id === id; });
+              if (!post) return;
+              target.push({
+                id: state.position + '-' + Date.now() + '-' + id,
+                postId: post.id,
+                title: post.title,
+                authorId: post.authorId,
+                authorName: post.authorName,
+                board: post.board,
+                tagName: post.tagName,
+                viewCount: post.viewCount,
+                likeCount: post.likeCount,
+                commentCount: post.commentCount,
+                startAt: startAt,
+                endAt: endAt,
+                order: target.length + 1
+              });
+            });
+            target.forEach(function (record, index) { record.order = index + 1; });
+            App.toast('已添加 ' + ids.length + ' 条推荐', 'success');
+            renderAll();
+          }
+        });
+
+        const start = new Date(Date.now() + 3600000);
+        const end = new Date(Date.now() + 30 * 86400000);
+        $('#rec-start').value = App.fmtDate(start, 'YYYY-MM-DD') + 'T' + App.fmtDate(start, 'HH:mm');
+        $('#rec-end').value = App.fmtDate(end, 'YYYY-MM-DD') + 'T' + App.fmtDate(end, 'HH:mm');
+
+        $('#rec-search').addEventListener('input', function () {
+          keyword = this.value;
+          renderPicks();
+        });
+
+        $('#rec-pick-list').addEventListener('click', function (event) {
+          const label = event.target.closest('.rec-pick');
+          if (!label) return;
+          event.preventDefault();
+          const id = label.getAttribute('data-id');
+          if (selected[id]) delete selected[id];
+          else selected[id] = true;
+          label.classList.toggle('checked', !!selected[id]);
+          const checkbox = label.querySelector('input');
+          if (checkbox) checkbox.checked = !!selected[id];
+          updateCount();
+        });
+
+        renderPicks();
+      }
+
+      /* ---------------------------------------------------------------
+         移除
+         --------------------------------------------------------------- */
+      function removeItem(item) {
+        App.modal({
+          title: '移除推荐',
+          desc: '移除后该内容将不再出现在对应推荐位，确定继续吗？',
+          body: '<div class="text-md muted">目标内容：<b>' + esc(item.title) + '</b></div>',
+          danger: true,
+          confirmText: '确认移除',
+          onConfirm: function () {
+            const list = listOf();
+            const index = list.findIndex(function (record) { return record.id === item.id; });
+            if (index !== -1) list.splice(index, 1);
+            list.forEach(function (record, position) { record.order = position + 1; });
+            App.toast('已移除推荐内容', 'success');
+            renderAll();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#rec-tabs').addEventListener('click', function (event) {
+        const button = event.target.closest('.rec-tab[data-position]');
+        if (!button) return;
+        state.position = button.getAttribute('data-position');
+        dragIndex = -1;
+        renderAll();
+      });
+
+      $('#rec-list').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action="remove"]');
+        if (!button) return;
+        const item = listOf().find(function (record) { return record.id === button.getAttribute('data-id'); });
+        if (item) removeItem(item);
+      });
+
+      $('#add-rec-btn').addEventListener('click', openPicker);
+
+      /* ---------------------------------------------------------------
+         初始化
+         --------------------------------------------------------------- */
+      renderAll();
+      bindDrag();
+    })();
+  </script>
+</body>
+</html>

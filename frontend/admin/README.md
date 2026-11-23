@@ -47,8 +47,11 @@ admin/
 | 敏感词库 | `sensitive-words.html` | 已完成 | `GET /api/admin/sensitive-words`、`PUT /api/admin/sensitive-words/policy` |
 | 举报工单 | `reports.html` | 已完成 | `GET /api/admin/reports/tickets`、`POST /api/admin/reports/tickets/{key}/resolve` |
 | 用户反馈 | `feedback.html` | 已完成 | `GET /api/admin/feedbacks`、`POST /api/admin/feedbacks/{id}/reply` |
-| 公告管理 | `announcements.html` | 待建设 | `GET /api/admin/announcements` |
-| 数据统计 | `analytics.html` | 待建设 | `GET /api/admin/analytics` |
+| 公告管理 | `announcements.html` | 已完成 | `GET /api/admin/announcements`、`POST /api/admin/announcements` |
+| 消息推送 | `notifications.html` | 已完成 | `GET /api/admin/notification-templates`、`POST /api/admin/push` |
+| 推荐位管理 | `recommendations.html` | 已完成 | `GET /api/admin/recommendations`、`PUT /api/admin/recommendations/order` |
+| 积分与等级 | `points.html` | 已完成 | `GET /api/admin/points/levels`、`GET /api/admin/points/logs` |
+| 数据统计 | `analytics.html` | 已完成 | `GET /api/admin/analytics/overview`、`GET /api/admin/analytics/categories` |
 | 操作日志 | `logs.html` | 待建设 | `GET /api/admin/logs` |
 | 系统设置 | `settings.html` | 待建设 | `GET /api/admin/settings` |
 
@@ -58,7 +61,7 @@ admin/
 
 所有数据来自 `assets/mock.js` 暴露的全局常量，页面不使用硬编码表格行：
 
-`USERS`、`POSTS`、`COMMENTS`、`TAGS`、`BANS`、`REPORTS`、`FEEDBACKS`、`ANNOUNCEMENTS`、`LOGS`、`ADMINS`、`ROLES`、`SENSITIVE_WORDS`、`STATS`、`DASHBOARD`、`DICT`。
+`USERS`、`POSTS`、`COMMENTS`、`TAGS`、`BANS`、`REPORTS`、`FEEDBACKS`、`ANNOUNCEMENTS`、`ANNOUNCEMENT_GROUPS`、`NOTIFICATION_GROUPS`、`NOTIFICATION_TEMPLATES`、`POINT_LEVELS`、`POINT_RULES`、`POINT_LOGS`、`POINT_LEADERBOARD`、`RECOMMENDATION_META`、`RECOMMENDATIONS`、`ANALYTICS`、`LOGS`、`ADMINS`、`ROLES`、`SENSITIVE_WORDS`、`STATS`、`DASHBOARD`、`DICT`。
 
 ### 用户列表（`users.html`）
 
@@ -83,6 +86,36 @@ admin/
   - `GET /api/admin/todos`、`PATCH /api/admin/todos/{id}`
   - `GET /api/admin/activities?limit=8`
 - 已实现：4 个 KPI、成员增长折线图、内容互动柱状图、留存环形图、待办勾选、最新动态时间线、热门标签进度条、CSV 报表导出。
+
+### 公告管理（`announcements.html`）
+
+- 数据字段：`id / title / summary / content / positions[] / scope{ type, groups } / startAt / endAt / enabled / creator / createdAt`
+- 接口：`GET /api/admin/announcements`、`POST /api/admin/announcements`、`PUT /api/admin/announcements/{id}`、`PATCH /api/admin/announcements/{id}/status`、`DELETE /api/admin/announcements/{id}`
+- 已实现：关键词 / 位置 / 状态筛选、分页、投放状态自动计算（未开始 / 投放中 / 已结束 / 已停用）、新建与编辑抽屉（位置多选、接收范围、定时起止、启用开关）、简化富文本预览、启停与删除。
+
+### 消息模板与推送（`notifications.html`）
+
+- 数据字段：`NOTIFICATION_TEMPLATES`（`name / code / scene / channels[] / enabled / title / body / variables[]`）、`NOTIFICATION_GROUPS`
+- 接口：`GET /api/admin/notification-templates`、`PUT /api/admin/notification-templates/{id}`、`POST /api/admin/push/estimate`、`POST /api/admin/push`
+- 已实现：模板渠道图标、启用开关、编辑抽屉（变量点击插入、实时预览）、定向推送人群筛选、预计触达人数与分渠道估算、立即 / 定时发送、发送预览与二次确认。
+
+### 积分与等级（`points.html`）
+
+- 数据字段：`POINT_LEVELS`、`POINT_RULES`、`POINT_LOGS`、`POINT_LEADERBOARD`
+- 接口：`GET /api/admin/points/levels`、`PUT /api/admin/points/levels/{level}`、`GET /api/admin/points/rules`、`PATCH /api/admin/points/rules/{id}/status`、`GET /api/admin/points/logs`、`GET /api/admin/points/leaderboard`
+- 已实现：信任等级表与编辑弹窗、积分规则启用开关、积分流水分页（正负色与余额）、排行榜 TOP20（等级胶囊与前三名样式）。
+
+### 推荐位与运营位（`recommendations.html`）
+
+- 数据字段：`RECOMMENDATION_META`、`RECOMMENDATIONS[global|category|carousel|sidebar]`
+- 接口：`GET /api/admin/recommendations`、`POST /api/admin/recommendations`、`PUT /api/admin/recommendations/order`、`DELETE /api/admin/recommendations/{id}`
+- 已实现：按位置分 Tab、拖拽排序、生效时间段展示、添加推荐模态（帖子搜索 + 勾选 + 生效时间）、移除推荐。
+
+### 数据分析（`analytics.html`）
+
+- 数据字段：`ANALYTICS.daily`（180 天）、`ANALYTICS.categories`、`ANALYTICS.retention`
+- 接口：`GET /api/admin/analytics/overview?days=30&compare=1`、`GET /api/admin/analytics/categories`、`GET /api/admin/analytics/retention`、`GET /api/admin/analytics/active-users`
+- 已实现：7 / 30 / 90 天切换、对比上期开关、4 个 KPI（环比 + sparkline）、成员增长双线图（含上期对比线）、分类堆叠柱状图、次月留存环形图、分类表现与活跃用户 TOP10 表格。
 
 ### 登录（`login.html`）
 

@@ -649,8 +649,11 @@
     {
       title: '运营中心',
       items: [
-        { key: 'announcements', label: '公告管理', icon: 'megaphone', href: '#' },
-        { key: 'analytics', label: '数据统计', icon: 'chart', href: '#' }
+        { key: 'announcements', label: '公告管理', icon: 'megaphone', href: 'announcements.html' },
+        { key: 'notifications', label: '消息推送', icon: 'bell', href: 'notifications.html' },
+        { key: 'recommendations', label: '推荐位管理', icon: 'grid', href: 'recommendations.html' },
+        { key: 'points', label: '积分与等级', icon: 'sparkles', href: 'points.html' },
+        { key: 'analytics', label: '数据统计', icon: 'chart', href: 'analytics.html' }
       ]
     },
     {

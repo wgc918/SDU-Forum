@@ -154,13 +154,23 @@
       return '';
     }
 
+    const stacked = !!options.stacked;
     const allValues = [];
-    series.forEach(function (item) {
-      item.data.forEach(function (value) { allValues.push(Number(value) || 0); });
-    });
+    if (stacked) {
+      labels.forEach(function (label, index) {
+        const total = series.reduce(function (sum, item) { return sum + (Number(item.data[index]) || 0); }, 0);
+        allValues.push(total);
+      });
+    } else {
+      series.forEach(function (item) {
+        item.data.forEach(function (value) { allValues.push(Number(value) || 0); });
+      });
+    }
     const scale = niceScale(Math.max.apply(null, allValues), 4);
     const groupWidth = plotW / labels.length;
-    const barWidth = Math.min(20, Math.max(6, (groupWidth * 0.62) / series.length));
+    const barWidth = stacked
+      ? Math.min(30, Math.max(10, groupWidth * 0.46))
+      : Math.min(20, Math.max(6, (groupWidth * 0.62) / series.length));
 
     let svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" width="100%" role="img" aria-label="柱状图">';
 
@@ -184,6 +194,22 @@
 
     labels.forEach(function (label, groupIndex) {
       const groupCenter = margin.left + groupWidth * groupIndex + groupWidth / 2;
+
+      if (stacked) {
+        let offset = 0;
+        series.forEach(function (item) {
+          const value = Number(item.data[groupIndex]) || 0;
+          if (value <= 0) return;
+          const barHeight = (value / scale.max) * plotH;
+          const y = margin.top + plotH - offset - barHeight;
+          svg += '<rect x="' + (groupCenter - barWidth / 2).toFixed(1) + '" y="' + y.toFixed(1) +
+            '" width="' + barWidth + '" height="' + barHeight.toFixed(1) + '" rx="2" fill="' + colorOf(item.color) + '">' +
+            '<title>' + esc(label) + ' · ' + (item.name ? esc(item.name) + ' ' : '') + value + '</title></rect>';
+          offset += barHeight;
+        });
+        return;
+      }
+
       const totalWidth = barWidth * series.length + 3 * (series.length - 1);
       const startX = groupCenter - totalWidth / 2;
 

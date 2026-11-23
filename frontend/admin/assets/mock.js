@@ -415,20 +415,41 @@
     '论坛年度数据报告发布', '关于春节期间值班与审核安排的公告'
   ];
 
+  const ANNOUNCEMENT_POSITIONS = ['banner', 'modal', 'sidebar'];
+  const ANNOUNCEMENT_GROUPS = ['2026 级新生', '毕业生', '已认证用户', '版主团队', '高活跃用户', '沉睡用户'];
+
   const ANNOUNCEMENTS = ANNOUNCEMENT_TITLES.map(function (title, index) {
-    const createdDays = ri(0, 120);
-    const status = index % 9 === 0 ? 'draft' : (index % 13 === 0 ? 'offline' : 'published');
+    const createdAt = ago(ri(0, 120), ri(0, 23));
+    const offset = ri(-38, 55);
+    const startAt = NOW + offset * DAY + ri(8, 10) * 3600000;
+    const endAt = startAt + ri(3, 40) * DAY;
+    const positions = [ANNOUNCEMENT_POSITIONS[index % ANNOUNCEMENT_POSITIONS.length]];
+    if (index % 4 === 0) {
+      const extra = ANNOUNCEMENT_POSITIONS[(index + 1) % ANNOUNCEMENT_POSITIONS.length];
+      if (positions.indexOf(extra) === -1) positions.push(extra);
+    }
+    const groups = index % 3 === 0 ? [] : [
+      ANNOUNCEMENT_GROUPS[index % ANNOUNCEMENT_GROUPS.length],
+      ANNOUNCEMENT_GROUPS[(index + 2) % ANNOUNCEMENT_GROUPS.length]
+    ].filter(function (name, position, list) { return list.indexOf(name) === position; });
+
     return {
       id: 'n' + (index + 1),
       title: title,
       summary: '为维护良好的社区秩序，现将相关安排与规范说明如下，请各位同学知悉并遵守。',
-      content: '<p>' + title + '</p><p>为维护良好的社区秩序，保障广大同学的正常使用体验，现就相关事项说明如下：</p><ol><li>请遵守社区管理规范，理性发言、友善交流。</li><li>如发现违规内容，可通过举报入口提交，我们会尽快处理。</li><li>如有疑问，可在「意见反馈」板块留言。</li></ol>',
+      content: title + '\n\n为维护良好的社区秩序，保障广大同学的正常使用体验，现就相关事项说明如下：\n1. 请遵守社区管理规范，理性发言、友善交流。\n2. 如发现违规内容，可通过举报入口提交，我们会尽快处理。\n3. 如有疑问，可在「意见反馈」板块留言。',
       level: index % 6 === 0 ? 'important' : (index % 4 === 0 ? 'normal' : 'info'),
-      status: status,
+      status: startAt > NOW ? 'scheduled' : (endAt < NOW ? 'ended' : 'active'),
       author: pick(ADMINS).name,
+      creator: pick(ADMINS).name,
       views: ri(120, 12800),
-      createdAt: ago(createdDays, ri(0, 23)),
-      publishedAt: status === 'published' ? ago(createdDays, ri(0, 23)) : null
+      createdAt: createdAt,
+      publishedAt: startAt <= NOW ? startAt : null,
+      positions: positions,
+      scope: groups.length ? { type: 'groups', groups: groups } : { type: 'all', groups: [] },
+      startAt: startAt,
+      endAt: endAt,
+      enabled: index % 11 !== 0
     };
   });
 
@@ -567,6 +588,238 @@
   };
 
   /* ========================================================================
+     运营中心：消息模板 / 定向推送
+     ======================================================================== */
+  const NOTIFICATION_GROUPS = ['2026 级新生', '毕业生', '已认证用户', '版主团队', '高活跃用户', '沉睡用户'];
+
+  const NOTIFICATION_TEMPLATES = [
+    {
+      id: 't1', name: '评论回复通知', code: 'COMMENT_REPLY', scene: '帖子收到新评论',
+      channels: ['inbox', 'push'], enabled: true,
+      title: '{nickname} 回复了你的帖子',
+      body: '你的帖子《{postTitle}》收到新回复：\n{commentContent}\n\n点击查看完整讨论。',
+      variables: ['{nickname}', '{postTitle}', '{commentContent}', '{time}']
+    },
+    {
+      id: 't2', name: '帖子审核结果', code: 'POST_REVIEW', scene: '帖子审核完成',
+      channels: ['inbox', 'email'], enabled: true,
+      title: '你的帖子《{postTitle}》审核{result}',
+      body: '你好 {nickname}，你于 {time} 提交的帖子《{postTitle}》已完成审核，结果：{result}。\n如有疑问可通过「意见反馈」提交申诉。',
+      variables: ['{nickname}', '{postTitle}', '{result}', '{time}']
+    },
+    {
+      id: 't3', name: '内容加精通知', code: 'POST_ESSENCE', scene: '内容被设为精华',
+      channels: ['inbox', 'push'], enabled: true,
+      title: '你的帖子被评为精华内容',
+      body: '恭喜！你的帖子《{postTitle}》被版主设为精华，获得 {points} 积分奖励，感谢你的优质分享。',
+      variables: ['{postTitle}', '{points}', '{time}']
+    },
+    {
+      id: 't4', name: '点赞里程碑', code: 'LIKE_MILESTONE', scene: '帖子点赞达到阈值',
+      channels: ['inbox'], enabled: true,
+      title: '你的帖子收获 {likes} 个赞',
+      body: '《{postTitle}》已获得 {likes} 个赞，继续分享有价值的内容吧。',
+      variables: ['{postTitle}', '{likes}']
+    },
+    {
+      id: 't5', name: '账号封禁通知', code: 'ACCOUNT_BAN', scene: '账号被限制登录',
+      channels: ['inbox', 'email', 'push'], enabled: true,
+      title: '账号处理通知：限制登录',
+      body: '你好 {nickname}，因「{reason}」，你的账号已被限制登录，解封时间：{endAt}。\n如有异议可提交申诉。',
+      variables: ['{nickname}', '{reason}', '{endAt}', '{operator}']
+    },
+    {
+      id: 't6', name: '禁言通知', code: 'ACCOUNT_MUTE', scene: '账号被禁言',
+      channels: ['inbox', 'email'], enabled: true,
+      title: '账号处理通知：限制发言',
+      body: '你好 {nickname}，因「{reason}」，你已被禁言至 {endAt}。禁言期间仍可正常浏览社区内容。',
+      variables: ['{nickname}', '{reason}', '{endAt}', '{scope}']
+    },
+    {
+      id: 't7', name: '实名认证结果', code: 'VERIFY_RESULT', scene: '实名认证审核完成',
+      channels: ['inbox', 'email'], enabled: true,
+      title: '实名认证审核{result}',
+      body: '你好 {nickname}，你的实名认证申请已审核完成，结果：{result}。\n认证通过后可解锁正式成员权限。',
+      variables: ['{nickname}', '{result}', '{time}']
+    },
+    {
+      id: 't8', name: '积分与等级变动', code: 'POINT_CHANGE', scene: '积分达到等级门槛',
+      channels: ['inbox', 'push'], enabled: false,
+      title: '你已升级为「{levelName}」',
+      body: '恭喜 {nickname}，你的社区积分达到 {points}，信任等级提升至 L{level}「{levelName}」。',
+      variables: ['{nickname}', '{level}', '{levelName}', '{points}']
+    },
+    {
+      id: 't9', name: '每周社区精选', code: 'WEEKLY_DIGEST', scene: '每周一 09:00 定时',
+      channels: ['inbox', 'email', 'push'], enabled: true,
+      title: '本周社区精选 · {weekRange}',
+      body: '{nickname}，本周社区新增 {postCount} 篇优质内容，其中「{topTitle}」最受关注，点击查看完整周报。',
+      variables: ['{nickname}', '{weekRange}', '{postCount}', '{topTitle}']
+    },
+    {
+      id: 't10', name: '举报处理结果', code: 'REPORT_RESULT', scene: '举报工单处理完成',
+      channels: ['inbox'], enabled: true,
+      title: '你的举报已处理',
+      body: '你举报的{targetType}「{targetTitle}」已完成处理，处理结果：{result}。感谢你对社区治理的支持。',
+      variables: ['{targetType}', '{targetTitle}', '{result}', '{time}']
+    }
+  ];
+
+  /* ========================================================================
+     积分与信任等级
+     ======================================================================== */
+  const POINT_LEVELS = [
+    { level: 0, name: '新注册用户', requirement: '完成注册即可', permission: '可浏览、发帖、评论；发帖需人工审核', mode: 'auto' },
+    { level: 1, name: '正式成员', requirement: '实名认证 + 积分 ≥ 50', permission: '免审核发帖、可上传图片与附件', mode: 'auto' },
+    { level: 2, name: '活跃成员', requirement: '积分 ≥ 200 且近 30 天发帖 ≥ 5', permission: '可发起投票、可创建新标签', mode: 'auto' },
+    { level: 3, name: '资深成员', requirement: '积分 ≥ 800 且无违规记录', permission: '可申请版主、优质帖自主置顶', mode: 'manual' },
+    { level: 4, name: '社区元老', requirement: '积分 ≥ 2000 + 管理员提名', permission: '全部成员权限 + 社区治理投票权', mode: 'manual' }
+  ];
+
+  const POINT_RULES = [
+    { id: 'pr1', action: '发布帖子', value: 5, dailyCap: 20, enabled: true },
+    { id: 'pr2', action: '帖子被点赞', value: 1, dailyCap: 20, enabled: true },
+    { id: 'pr3', action: '发表评论', value: 2, dailyCap: 10, enabled: true },
+    { id: 'pr4', action: '评论被点赞', value: 1, dailyCap: 10, enabled: true },
+    { id: 'pr5', action: '帖子被收藏', value: 2, dailyCap: 20, enabled: true },
+    { id: 'pr6', action: '每日首次登录', value: 1, dailyCap: 1, enabled: true },
+    { id: 'pr7', action: '完成实名认证', value: 20, dailyCap: 20, enabled: true },
+    { id: 'pr8', action: '举报被采纳', value: 10, dailyCap: 30, enabled: true },
+    { id: 'pr9', action: '内容被设为精华', value: 50, dailyCap: 100, enabled: true },
+    { id: 'pr10', action: '违规内容扣分', value: -10, dailyCap: 0, enabled: true }
+  ];
+
+  const POINT_LOG_RULES = [
+    ['发布帖子', 5], ['帖子被点赞', 1], ['发表评论', 2], ['评论被点赞', 1],
+    ['帖子被收藏', 2], ['每日首次登录', 1], ['完成实名认证', 20],
+    ['举报被采纳', 10], ['内容被设为精华', 50], ['违规内容扣分', -10]
+  ];
+
+  const POINT_LOGS = [];
+  const pointBalanceMap = {};
+  for (let i = 0; i < 168; i++) {
+    const user = pick(USERS);
+    const rule = pick(POINT_LOG_RULES);
+    if (pointBalanceMap[user.id] == null) {
+      pointBalanceMap[user.id] = Math.max(rule[1] < 0 ? 60 : 0, Math.round(user.reputation * 0.62));
+    }
+    pointBalanceMap[user.id] = Math.max(0, pointBalanceMap[user.id] + rule[1]);
+    POINT_LOGS.push({
+      id: 'pl' + (i + 1),
+      userId: user.id,
+      studentId: user.studentId,
+      nickname: user.nickname,
+      action: rule[0],
+      delta: rule[1],
+      balance: pointBalanceMap[user.id],
+      createdAt: ago(ri(0, 45), ri(0, 23))
+    });
+  }
+  POINT_LOGS.sort(function (a, b) { return b.createdAt - a.createdAt; });
+
+  function levelOfPoints(points) {
+    if (points >= 2000) return 4;
+    if (points >= 800) return 3;
+    if (points >= 200) return 2;
+    if (points >= 50) return 1;
+    return 0;
+  }
+
+  const POINT_LEADERBOARD = USERS.slice()
+    .sort(function (a, b) { return b.reputation - a.reputation; })
+    .slice(0, 20)
+    .map(function (user, index) {
+      return {
+        rank: index + 1,
+        userId: user.id,
+        nickname: user.nickname,
+        studentId: user.studentId,
+        college: user.college,
+        points: user.reputation,
+        level: levelOfPoints(user.reputation)
+      };
+    });
+
+  /* ========================================================================
+     推荐位与运营位
+     ======================================================================== */
+  const RECOMMENDATION_META = [
+    { key: 'global', label: '全站置顶', desc: '全站帖子列表顶部固定展示' },
+    { key: 'category', label: '分类置顶', desc: '各分类首屏置顶内容' },
+    { key: 'carousel', label: '首页轮播', desc: '移动端首页轮播位，最多 5 条' },
+    { key: 'sidebar', label: '侧边推荐', desc: '首页右侧「编辑推荐」卡片' }
+  ];
+
+  const RECOMMENDATIONS = {};
+  const recommendablePosts = POSTS.filter(function (post) { return post.status === 'published'; });
+  RECOMMENDATION_META.forEach(function (meta, metaIndex) {
+    const count = meta.key === 'global' ? 5 : (meta.key === 'category' ? 6 : (meta.key === 'carousel' ? 4 : 5));
+    const used = {};
+    const list = [];
+    for (let i = 0; i < count; i++) {
+      let cursor = (metaIndex * 41 + i * 13) % recommendablePosts.length;
+      while (used[recommendablePosts[cursor].id]) cursor = (cursor + 1) % recommendablePosts.length;
+      const post = recommendablePosts[cursor];
+      used[post.id] = true;
+      const startAt = NOW - ri(0, 10) * DAY;
+      list.push({
+        id: meta.key + '-' + (i + 1),
+        postId: post.id,
+        title: post.title,
+        authorId: post.authorId,
+        authorName: post.authorName,
+        board: post.board,
+        tagName: post.tagName,
+        viewCount: post.viewCount,
+        likeCount: post.likeCount,
+        commentCount: post.commentCount,
+        startAt: startAt,
+        endAt: startAt + ri(14, 60) * DAY,
+        order: i + 1
+      });
+    }
+    RECOMMENDATIONS[meta.key] = list;
+  });
+
+  /* ========================================================================
+     数据分析（180 天日粒度，支持 7 / 30 / 90 天对比）
+     ======================================================================== */
+  const ANALYTICS_CATEGORIES = ['校园生活', '学习科研', '求职就业', '兴趣社团', '情感树洞'];
+
+  const analyticsDaily = [];
+  for (let i = 179; i >= 0; i--) {
+    const date = new Date(NOW - i * DAY);
+    analyticsDaily.push({
+      date: date.getTime(),
+      label: (date.getMonth() + 1) + '/' + date.getDate(),
+      register: ri(14, 88),
+      active: ri(920, 1980),
+      posts: ri(26, 112),
+      comments: ri(130, 470),
+      likes: ri(180, 780)
+    });
+  }
+
+  const ANALYTICS = {
+    daily: analyticsDaily,
+    categories: ANALYTICS_CATEGORIES.map(function (name) {
+      const base = POSTS.filter(function (post) { return post.board === name; }).length;
+      return {
+        name: name,
+        posts: base * 11 + ri(40, 160),
+        comments: base * 26 + ri(120, 360),
+        avgInteraction: Number((ri(180, 460) / 10).toFixed(1)),
+        delta: Number(((rnd() - 0.36) * 42).toFixed(1))
+      };
+    }),
+    retention: {
+      7: { current: 38.6, previous: 35.2 },
+      30: { current: 41.8, previous: 37.4 },
+      90: { current: 44.2, previous: 39.8 }
+    }
+  };
+
+  /* ========================================================================
      对外暴露
      ======================================================================== */
   window.MOCK_NOW = NOW;
@@ -582,6 +835,16 @@
   window.ADMINS = ADMINS;
   window.ROLES = ROLES;
   window.SENSITIVE_WORDS = SENSITIVE_WORDS;
+  window.ANNOUNCEMENT_GROUPS = ANNOUNCEMENT_GROUPS;
+  window.NOTIFICATION_GROUPS = NOTIFICATION_GROUPS;
+  window.NOTIFICATION_TEMPLATES = NOTIFICATION_TEMPLATES;
+  window.POINT_LEVELS = POINT_LEVELS;
+  window.POINT_RULES = POINT_RULES;
+  window.POINT_LOGS = POINT_LOGS;
+  window.POINT_LEADERBOARD = POINT_LEADERBOARD;
+  window.RECOMMENDATION_META = RECOMMENDATION_META;
+  window.RECOMMENDATIONS = RECOMMENDATIONS;
+  window.ANALYTICS = ANALYTICS;
 
   window.STATS = STATS;
   window.DASHBOARD = {
