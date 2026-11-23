@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>角色与权限 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="roles">
+    <!--
+      ======================================================================
+      页面：角色与权限
+      ----------------------------------------------------------------------
+      数据字段：
+        ROLES             id / name / description / builtin / memberCount / permissionKeys[]
+        PERMISSION_MODULES key / name / desc / points[{ key, label }]
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET /api/admin/roles
+        GET /api/admin/permissions
+        PUT /api/admin/roles/{id}/permissions { permissionKeys[] }
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">角色与权限</h1>
+        <p class="page-desc">按模块配置角色可访问的功能权限，保存后对该角色全部成员生效</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="perm-reset-btn">重置</button>
+        <button type="button" class="btn btn-primary" id="perm-save-btn">保存权限</button>
+      </div>
+    </div>
+
+    <div class="roles-layout">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">角色列表</div>
+            <div class="card-sub" id="role-count">共 0 个角色</div>
+          </div>
+        </div>
+        <div class="role-list" id="role-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title" id="perm-title">权限矩阵</div>
+            <div class="card-sub" id="perm-sub">选择左侧角色后配置权限</div>
+          </div>
+          <div class="card-head-side">
+            <span class="perm-dirty" id="perm-dirty" hidden>有未保存的修改</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="perm-toolbar">
+            <div>
+              <div class="perm-toolbar-title" id="perm-selected-title">—</div>
+              <div class="perm-toolbar-sub" id="perm-selected-sub"></div>
+            </div>
+            <div class="perm-toolbar-actions">
+              <span class="text-sm muted" id="perm-total">已选 0 / 0 项</span>
+            </div>
+          </div>
+          <div id="perm-matrix"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('roles');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const ROLES = window.ROLES;
+      const MODULES = window.PERMISSION_MODULES;
+
+      const ALL_KEYS = MODULES.reduce(function (keys, module) {
+        return keys.concat(module.points.map(function (point) { return point.key; }));
+      }, []);
+
+      const state = {
+        roleId: ROLES[0].id,
+        draft: new Set(ROLES[0].permissionKeys)
+      };
+
+      function currentRole() {
+        return ROLES.find(function (role) { return role.id === state.roleId; }) || ROLES[0];
+      }
+
+      function isDirty() {
+        const saved = currentRole().permissionKeys;
+        if (saved.length !== state.draft.size) return true;
+        return saved.some(function (key) { return !state.draft.has(key); });
+      }
+
+      /* ---------------------------------------------------------------
+         左侧角色列表
+         --------------------------------------------------------------- */
+      function renderRoles() {
+        $('#role-count').textContent = '共 ' + ROLES.length + ' 个角色';
+        $('#role-list').innerHTML = ROLES.map(function (role) {
+          return '<button type="button" class="role-item' + (role.id === state.roleId ? ' active' : '') + '" data-id="' + role.id + '">' +
+            '<div class="role-item-top"><span class="role-item-name">' + esc(role.name) + '</span>' +
+            (role.builtin ? '<span class="role-builtin">内置</span>' : '') + '</div>' +
+            '<div class="role-item-meta"><span>' + role.memberCount + ' 位成员</span><span>·</span>' +
+            '<span>' + role.permissionKeys.length + ' 项权限</span></div>' +
+            '<div class="role-item-desc">' + esc(role.description) + '</div>' +
+            '</button>';
+        }).join('');
+      }
+
+      /* ---------------------------------------------------------------
+         权限矩阵
+         --------------------------------------------------------------- */
+      function moduleState(module) {
+        const selected = module.points.filter(function (point) { return state.draft.has(point.key); }).length;
+        return {
+          selected: selected,
+          total: module.points.length,
+          all: selected === module.points.length,
+          partial: selected > 0 && selected < module.points.length
+        };
+      }
+
+      function syncModuleHeaders() {
+        MODULES.forEach(function (module) {
+          const info = moduleState(module);
+          const check = $('.perm-group-check[data-module="' + module.key + '"]');
+          const count = $('.perm-group-count[data-module="' + module.key + '"]');
+          if (check) {
+            check.checked = info.all;
+            check.indeterminate = info.partial;
+          }
+          if (count) count.textContent = info.selected + ' / ' + info.total;
+        });
+
+        const total = state.draft.size;
+        $('#perm-total').textContent = '已选 ' + total + ' / ' + ALL_KEYS.length + ' 项';
+        $('#perm-dirty').hidden = !isDirty();
+      }
+
+      function renderMatrix() {
+        const role = currentRole();
+        $('#perm-title').textContent = role.name + ' · 权限矩阵';
+        $('#perm-sub').textContent = role.description;
+        $('#perm-selected-title').textContent = '当前角色：' + role.name + (role.builtin ? '（内置）' : '');
+        $('#perm-selected-sub').textContent = '成员 ' + role.memberCount + ' 人 · 勾选权限点后点击右上角「保存权限」生效';
+
+        $('#perm-matrix').innerHTML = MODULES.map(function (module) {
+          const info = moduleState(module);
+          return '<section class="perm-group">' +
+            '<div class="perm-group-head">' +
+            '<input type="checkbox" class="perm-group-check" data-module="' + module.key + '"' + (info.all ? ' checked' : '') + ' aria-label="全选' + esc(module.name) + '">' +
+            '<div><div class="perm-group-name">' + esc(module.name) + '</div>' +
+            '<div class="perm-group-desc">' + esc(module.desc) + '</div></div>' +
+            '<span class="perm-group-count" data-module="' + module.key + '">' + info.selected + ' / ' + info.total + '</span>' +
+            '</div>' +
+            '<div class="perm-points">' + module.points.map(function (point) {
+              const checked = state.draft.has(point.key);
+              return '<label class="perm-point' + (checked ? ' checked' : '') + '">' +
+                '<input type="checkbox" class="js-perm-point" data-key="' + point.key + '" data-module="' + module.key + '"' + (checked ? ' checked' : '') + '>' +
+                '<span>' + esc(point.label) + '</span></label>';
+            }).join('') + '</div></section>';
+        }).join('');
+
+        syncModuleHeaders();
+      }
+
+      function switchRole(roleId) {
+        state.roleId = roleId;
+        state.draft = new Set(currentRole().permissionKeys);
+        renderRoles();
+        renderMatrix();
+      }
+
+      /* ---------------------------------------------------------------
+         保存 / 重置
+         --------------------------------------------------------------- */
+      $('#perm-save-btn').addEventListener('click', function () {
+        const role = currentRole();
+        role.permissionKeys = Array.from(state.draft);
+        App.toast('已保存「' + role.name + '」的 ' + role.permissionKeys.length + ' 项权限', 'success');
+        renderRoles();
+        renderMatrix();
+      });
+
+      $('#perm-reset-btn').addEventListener('click', function () {
+        if (!isDirty()) {
+          App.toast('当前没有未保存的修改', 'info');
+          return;
+        }
+        state.draft = new Set(currentRole().permissionKeys);
+        renderMatrix();
+        App.toast('已恢复为上次保存的权限配置', 'info');
+      });
+
+      $('#role-list').addEventListener('click', function (event) {
+        const button = event.target.closest('.role-item[data-id]');
+        if (!button) return;
+        const roleId = button.getAttribute('data-id');
+        if (roleId === state.roleId) return;
+
+        if (isDirty()) {
+          App.modal({
+            title: '切换角色',
+            desc: '当前角色有未保存的权限修改，切换后将丢失这些修改。',
+            body: '<div class="text-md muted">确定切换到「' + esc(ROLES.find(function (role) { return role.id === roleId; }).name) + '」吗？</div>',
+            confirmText: '放弃修改并切换',
+            danger: true,
+            onConfirm: function () { switchRole(roleId); }
+          });
+          return;
+        }
+        switchRole(roleId);
+      });
+
+      $('#perm-matrix').addEventListener('change', function (event) {
+        const moduleCheck = event.target.closest('.perm-group-check');
+        if (moduleCheck) {
+          const module = MODULES.find(function (item) { return item.key === moduleCheck.getAttribute('data-module'); });
+          if (!module) return;
+          module.points.forEach(function (point) {
+            if (moduleCheck.checked) state.draft.add(point.key);
+            else state.draft.delete(point.key);
+          });
+          $$('.js-perm-point[data-module="' + module.key + '"]').forEach(function (input) {
+            input.checked = moduleCheck.checked;
+            const label = input.closest('.perm-point');
+            if (label) label.classList.toggle('checked', input.checked);
+          });
+          syncModuleHeaders();
+          return;
+        }
+
+        const pointCheck = event.target.closest('.js-perm-point');
+        if (!pointCheck) return;
+        const key = pointCheck.getAttribute('data-key');
+        if (pointCheck.checked) state.draft.add(key);
+        else state.draft.delete(key);
+        const label = pointCheck.closest('.perm-point');
+        if (label) label.classList.toggle('checked', pointCheck.checked);
+        syncModuleHeaders();
+      });
+
+      /* ---------------------------------------------------------------
+         初始化
+         --------------------------------------------------------------- */
+      renderRoles();
+      renderMatrix();
+    })();
+  </script>
+</body>
+</html>

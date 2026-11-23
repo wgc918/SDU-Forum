@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运行状态 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="status">
+    <!--
+      ======================================================================
+      页面：运行状态
+      ----------------------------------------------------------------------
+      数据字段：
+        STATUS_KPIS      label / value / suffix / tone / icon / data[]
+        STATUS_SERIES    1h|24h|7d → labels / qps / rt
+        STATUS_ERRORS    createdAt / path / status / count / ip
+        STATUS_RESOURCES label / value / color / detail
+        STATUS_NETWORK   labels / inbound / outbound
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET /api/admin/system/status
+        GET /api/admin/system/metrics?range=24h
+        GET /api/admin/system/errors?range=1h
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">运行状态</h1>
+        <p class="page-desc">实时监控服务器资源、接口性能与异常请求，数据每分钟刷新</p>
+      </div>
+      <div class="page-actions">
+        <span class="text-sm muted" id="status-updated"></span>
+        <button type="button" class="btn btn-secondary" id="status-refresh-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>
+          </svg>
+          刷新
+        </button>
+      </div>
+    </div>
+
+    <div class="kpi-grid status-kpis" id="status-kpis"></div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <div>
+          <div class="card-title">API 请求统计</div>
+          <div class="card-sub" id="api-sub">QPS 与平均响应时间（双 Y 轴）</div>
+        </div>
+        <div class="card-head-side">
+          <div class="segmented" id="status-range" role="group" aria-label="时间范围">
+            <button type="button" data-range="1h" class="active">1h</button>
+            <button type="button" data-range="24h">24h</button>
+            <button type="button" data-range="7d">7d</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="status-legend" style="margin-bottom:8px">
+          <span><i style="background:var(--primary)"></i>QPS（左轴）</span>
+          <span><i class="dash" style="background:var(--warning)"></i>平均响应时间 ms（右轴）</span>
+        </div>
+        <div class="status-chart" id="api-chart"></div>
+      </div>
+    </div>
+
+    <div class="status-grid">
+      <div class="card table-card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">异常请求报警</div>
+            <div class="card-sub">近 1 小时聚合，按出现次数降序</div>
+          </div>
+          <div class="card-head-side">
+            <span class="text-sm muted">共 <b id="error-total">0</b> 次</span>
+          </div>
+        </div>
+        <div id="error-table"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">服务器资源</div>
+            <div class="card-sub">当前实例：sdu-forum-prod-01</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="gauge-list" id="gauge-list"></div>
+          <div class="network-block">
+            <div class="network-head">
+              <div class="network-title">网络 I/O</div>
+              <span class="text-sm muted">MB/s</span>
+            </div>
+            <div class="network-chart" id="network-chart"></div>
+            <div class="network-foot">
+              <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--primary);margin-right:5px"></i>入站</span>
+              <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#0F766E;margin-right:5px"></i>出站</span>
+              <span style="margin-left:auto">峰值 21.4 / 14.6 MB/s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script src="assets/charts.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('status');
+
+      const $ = App.$;
+      const esc = App.escapeHtml;
+      const KPIS = window.STATUS_KPIS;
+      const SERIES = window.STATUS_SERIES;
+      const ERRORS = window.STATUS_ERRORS;
+      const RESOURCES = window.STATUS_RESOURCES;
+      const NETWORK = window.STATUS_NETWORK;
+
+      const TONES = {
+        primary: { bg: 'var(--primary-soft)', fg: 'var(--primary)', color: 'var(--primary)' },
+        success: { bg: 'var(--success-soft)', fg: 'var(--success-text)', color: 'var(--success)' },
+        warning: { bg: 'var(--warning-soft)', fg: 'var(--warning-text)', color: 'var(--warning)' },
+        info: { bg: 'var(--info-soft)', fg: 'var(--info-text)', color: 'var(--info)' }
+      };
+
+      const state = { range: '1h' };
+
+      /* ---------------------------------------------------------------
+         KPI
+         --------------------------------------------------------------- */
+      function renderKpis() {
+        const trends = ['较昨日 +2.1%', '较昨日 +1.4%', '较昨日 +0.6%', '较昨日 +12.5%'];
+        $('#status-kpis').innerHTML = KPIS.map(function (item, index) {
+          const tone = TONES[item.tone] || TONES.primary;
+          const isOnline = item.key === 'online';
+          return '<div class="card kpi-card">' +
+            '<div class="kpi-top"><div class="kpi-label">' + App.icon(item.icon, 14) + esc(item.label) + '</div>' +
+            '<div class="kpi-icon" style="background:' + tone.bg + ';color:' + tone.fg + '">' + App.icon(item.icon, 18) + '</div></div>' +
+            '<div class="kpi-value">' + (isOnline ? App.fmtNum(item.value) : item.value.toFixed(1)) +
+            (item.suffix ? '<span class="text-sm muted" style="margin-left:2px">' + item.suffix + '</span>' : '') + '</div>' +
+            '<div class="status-kpi-foot">' +
+            '<div class="status-kpi-trend">' + trends[index].replace(/\+([\d.]+%)/, '<b style="color:' + (isOnline ? 'var(--success-text)' : 'var(--warning-text)') + '">+$1</b>') + '</div>' +
+            '<div class="status-kpi-spark" id="spark-' + item.key + '"></div>' +
+            '</div></div>';
+        }).join('');
+
+        KPIS.forEach(function (item) {
+          const tone = TONES[item.tone] || TONES.primary;
+          window.Charts.sparkline('#spark-' + item.key, {
+            data: item.data,
+            color: tone.color,
+            width: 96,
+            height: 30
+          });
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         API 双轴折线
+         --------------------------------------------------------------- */
+      function renderApiChart() {
+        const data = SERIES[state.range];
+        $('#api-sub').textContent = '近 ' + state.range + ' 的 QPS 与平均响应时间（双 Y 轴）';
+        window.Charts.line('#api-chart', {
+          labels: data.labels,
+          series: [
+            { name: 'QPS', color: 'var(--primary)', data: data.qps },
+            { name: '平均响应时间', color: 'var(--warning)', data: data.rt, axis: 'right', area: false }
+          ],
+          dualAxis: true,
+          height: 280
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         异常请求
+         --------------------------------------------------------------- */
+      function renderErrors() {
+        const total = ERRORS.reduce(function (sum, item) { return sum + item.count; }, 0);
+        $('#error-total').textContent = total;
+
+        App.renderTable('#error-table', [
+          {
+            title: '时间', width: '110px',
+            cell: function (item) {
+              return '<div class="cell-main" style="font-weight:400">' + App.fmtDate(item.createdAt, 'HH:mm:ss') + '</div>' +
+                '<div class="cell-sub">' + App.fmtRelative(item.createdAt) + '</div>';
+            }
+          },
+          {
+            title: '接口路径',
+            cell: function (item) {
+              return '<div class="status-error-path" title="' + esc(item.path) + '">' + esc(item.path) + '</div>';
+            }
+          },
+          {
+            title: '状态码', width: '78px',
+            cell: function (item) { return App.pill(String(item.status), 'danger'); }
+          },
+          {
+            title: '次数', width: '64px', align: 'right',
+            cell: function (item) { return '<span class="status-error-count">' + item.count + '</span>'; }
+          },
+          {
+            title: '来源 IP', width: '120px',
+            cell: function (item) { return '<span class="cell-mono">' + esc(item.ip) + '</span>'; }
+          }
+        ], ERRORS, {
+          emptyText: '暂无异常请求',
+          emptyDesc: '近 1 小时接口运行正常',
+          emptyIcon: 'check-circle'
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         资源仪表条 + 网络 I/O
+         --------------------------------------------------------------- */
+      function renderResources() {
+        $('#gauge-list').innerHTML = RESOURCES.map(function (item) {
+          return '<div class="gauge-item">' +
+            '<div class="gauge-head"><span class="gauge-name">' + esc(item.label) + '</span>' +
+            '<span class="gauge-detail">' + esc(item.detail) + '</span></div>' +
+            '<div id="gauge-' + item.key + '"></div></div>';
+        }).join('');
+
+        RESOURCES.forEach(function (item) {
+          window.Charts.progress('#gauge-' + item.key, {
+            label: item.label,
+            value: item.value,
+            max: 100,
+            color: item.color,
+            suffix: '%'
+          });
+        });
+
+        window.Charts.line('#network-chart', {
+          labels: NETWORK.labels,
+          series: [
+            { name: '入站', color: 'var(--primary)', data: NETWORK.inbound, area: false },
+            { name: '出站', color: '#0F766E', data: NETWORK.outbound, area: false }
+          ],
+          height: 160,
+          yTicks: 3
+        });
+      }
+
+      function updateTime() {
+        $('#status-updated').textContent = '最后刷新 ' + App.fmtDate(Date.now(), 'HH:mm:ss');
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#status-range').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-range]');
+        if (!button) return;
+        state.range = button.getAttribute('data-range');
+        Array.prototype.forEach.call($('#status-range').querySelectorAll('button'), function (item) {
+          item.classList.toggle('active', item === button);
+        });
+        renderApiChart();
+      });
+
+      $('#status-refresh-btn').addEventListener('click', function () {
+        updateTime();
+        App.toast('运行状态已刷新', 'success');
+      });
+
+      window.addEventListener('resize', App.debounce(function () {
+        renderApiChart();
+        window.Charts.line('#network-chart', {
+          labels: NETWORK.labels,
+          series: [
+            { name: '入站', color: 'var(--primary)', data: NETWORK.inbound, area: false },
+            { name: '出站', color: '#0F766E', data: NETWORK.outbound, area: false }
+          ],
+          height: 160,
+          yTicks: 3
+        });
+      }, 220));
+
+      renderKpis();
+      renderApiChart();
+      renderErrors();
+      renderResources();
+      updateTime();
+    })();
+  </script>
+</body>
+</html>

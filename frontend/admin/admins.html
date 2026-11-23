@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理员账号 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="admins">
+    <!--
+      ======================================================================
+      页面：管理员账号
+      ----------------------------------------------------------------------
+      数据字段（ADMINS）：
+        id / name / account / roles[] / roleName / email / status(active|disabled) /
+        lastLoginAt / lastIp / remark / createdAt
+      关联数据：ROLES（角色多选）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/admins?keyword=&role=&status=&page=1
+        POST   /api/admin/admins            { account, password, roles[], remark }
+        PUT    /api/admin/admins/{id}
+        PATCH  /api/admin/admins/{id}/status { status }
+        POST   /api/admin/admins/{id}/reset-password
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">管理员账号</h1>
+        <p class="page-desc">管理后台登录账号、角色分配与账号启停状态</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-primary" id="new-admin-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="M12 5v14"/>
+          </svg>
+          新增管理员
+        </button>
+      </div>
+    </div>
+
+    <div class="card filter-card">
+      <div class="filter-field" style="flex:1;min-width:220px">
+        <label class="filter-label" for="admin-keyword">搜索</label>
+        <div class="input-icon">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input class="control" id="admin-keyword" type="text" placeholder="按昵称、账号或登录 IP 搜索" autocomplete="off">
+        </div>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="admin-role-filter">角色</label>
+        <select class="select" id="admin-role-filter">
+          <option value="">全部角色</option>
+        </select>
+      </div>
+      <div class="filter-field" style="min-width:auto">
+        <label class="filter-label">账号状态</label>
+        <div class="segmented" id="admin-status-seg">
+          <button type="button" class="active" data-status="">全部</button>
+          <button type="button" data-status="active">启用</button>
+          <button type="button" data-status="disabled">已停用</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">账号列表</div>
+          <div class="card-sub" id="admin-count">共 0 个管理员</div>
+        </div>
+        <div class="card-head-side">
+          <span class="text-sm muted" id="admin-online-hint"></span>
+        </div>
+      </div>
+      <div id="admin-table"></div>
+      <div id="admin-pagination" style="padding:0 20px 16px"></div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('admins');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const ADMINS = window.ADMINS;
+      const ROLES = window.ROLES;
+
+      const ROLE_TONES = [
+        { bg: '#FEF3C7', fg: '#92400E' },
+        { bg: 'var(--primary-soft)', fg: 'var(--primary)' },
+        { bg: 'var(--success-soft)', fg: 'var(--success-text)' },
+        { bg: '#F5F3FF', fg: '#6D4AC7' },
+        { bg: '#FFF7ED', fg: '#C2410C' },
+        { bg: 'var(--info-soft)', fg: 'var(--info-text)' },
+        { bg: '#ECFDF5', fg: '#047857' },
+        { bg: '#F1F5F9', fg: '#64748B' }
+      ];
+
+      const state = { keyword: '', role: '', status: '', page: 1, pageSize: 10 };
+
+      function rolePills(admin) {
+        const roles = admin.roles && admin.roles.length ? admin.roles : [admin.roleName];
+        return '<div class="role-pills">' + roles.map(function (name) {
+          const index = Math.max(0, ROLES.findIndex(function (role) { return role.name === name; }));
+          const tone = ROLE_TONES[index % ROLE_TONES.length];
+          return '<span class="role-pill" style="background:' + tone.bg + ';color:' + tone.fg + '">' + esc(name) + '</span>';
+        }).join('') + '</div>';
+      }
+
+      function filtered() {
+        const keyword = state.keyword.trim().toLowerCase();
+        return ADMINS.filter(function (admin) {
+          if (state.role && !(admin.roles || [admin.roleName]).includes(state.role)) return false;
+          if (state.status && admin.status !== state.status) return false;
+          if (keyword) {
+            const text = (admin.name + ' ' + admin.account + ' ' + admin.lastIp).toLowerCase();
+            if (text.indexOf(keyword) === -1) return false;
+          }
+          return true;
+        });
+      }
+
+      function renderTable() {
+        const rows = filtered();
+        const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const pageRows = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+        const activeCount = ADMINS.filter(function (admin) { return admin.status === 'active'; }).length;
+
+        $('#admin-count').textContent = '共 ' + rows.length + ' 个管理员' +
+          (rows.length !== ADMINS.length ? '（全部 ' + ADMINS.length + ' 个）' : '');
+        $('#admin-online-hint').textContent = '已启用 ' + activeCount + ' 个账号';
+
+        App.renderTable('#admin-table', [
+          {
+            title: '头像昵称',
+            cell: function (admin) {
+              return '<div class="table-user">' + App.avatarHTML(admin.name, admin.id, 32) +
+                '<div style="min-width:0"><div class="cell-main">' + esc(admin.name) + '</div>' +
+                '<div class="cell-sub">' + esc(admin.email) + '</div></div></div>';
+            }
+          },
+          {
+            title: '登录账号', width: '150px',
+            cell: function (admin) {
+              return '<div class="account-cell">' + esc(admin.account) +
+                (admin.remark ? '<div class="cell-sub">' + esc(admin.remark) + '</div>' : '') + '</div>';
+            }
+          },
+          {
+            title: '角色', width: '168px',
+            cell: function (admin) { return rolePills(admin); }
+          },
+          {
+            title: '最后登录', width: '150px',
+            cell: function (admin) {
+              if (!admin.lastLoginAt) return '<span class="text-sm muted">从未登录</span>';
+              return '<div class="cell-main" style="font-weight:400">' + App.fmtDate(admin.lastLoginAt, 'YYYY-MM-DD') + '</div>' +
+                '<div class="cell-sub">' + App.fmtDate(admin.lastLoginAt, 'HH:mm') + ' · ' + App.fmtRelative(admin.lastLoginAt) + '</div>';
+            }
+          },
+          {
+            title: '登录 IP', width: '120px',
+            cell: function (admin) { return '<span class="cell-mono">' + esc(admin.lastIp) + '</span>'; }
+          },
+          {
+            title: '状态', width: '72px',
+            cell: function (admin) {
+              return '<label class="switch"><input type="checkbox" class="js-admin-switch" data-id="' + admin.id + '"' +
+                (admin.status === 'active' ? ' checked' : '') + ' aria-label="启用账号"><span class="switch-track"></span></label>';
+            }
+          },
+          {
+            title: '操作', align: 'right', width: '100px',
+            cell: function (admin) {
+              return '<div class="table-actions">' +
+                '<button type="button" class="icon-btn" data-action="edit" data-id="' + admin.id + '" title="编辑账号" aria-label="编辑账号">' + App.icon('edit', 16) + '</button>' +
+                '<button type="button" class="icon-btn" data-action="reset" data-id="' + admin.id + '" title="重置密码" aria-label="重置密码">' + App.icon('key', 16) + '</button>' +
+                '</div>';
+            }
+          }
+        ], pageRows, {
+          emptyText: '没有匹配的管理员账号',
+          emptyDesc: '请调整搜索关键词或筛选条件',
+          emptyIcon: 'shield'
+        });
+
+        App.renderPagination('#admin-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: rows.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderTable();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         新增 / 编辑
+         --------------------------------------------------------------- */
+      function openAdminModal(admin) {
+        const isEdit = !!admin;
+        const selectedRoles = isEdit ? (admin.roles || [admin.roleName]).slice() : [];
+
+        const body = '<div class="form-stack">' +
+          '<div class="form-grid-2">' +
+          '<div class="field"><label class="label" for="adm-account">登录账号</label>' +
+          '<input class="control' + (isEdit ? '' : '') + '" id="adm-account" type="text" autocomplete="off" placeholder="如 zhangmingyuan" value="' + esc(isEdit ? admin.account : '') + '"' + (isEdit ? ' readonly' : '') + '>' +
+          '<span class="help-text">' + (isEdit ? '登录账号创建后不可修改' : '仅支持字母、数字与下划线') + '</span></div>' +
+          '<div class="field"><label class="label" for="adm-password">' + (isEdit ? '重置密码' : '初始密码') + '</label>' +
+          '<input class="control" id="adm-password" type="text" autocomplete="new-password" placeholder="' + (isEdit ? '留空则不修改密码' : '至少 8 位，含字母与数字') + '">' +
+          '<span class="help-text">' + (isEdit ? '如需修改请填写新密码' : '创建后将通过邮件发送给管理员') + '</span></div>' +
+          '</div>' +
+          '<div class="field"><label class="label">分配角色</label>' +
+          '<div class="check-grid">' + ROLES.map(function (role) {
+            const checked = selectedRoles.indexOf(role.name) !== -1;
+            return '<label class="checkbox-label"><input type="checkbox" class="checkbox js-adm-role" value="' + role.name + '"' + (checked ? ' checked' : '') + '>' +
+              '<span>' + esc(role.name) + '</span></label>';
+          }).join('') + '</div>' +
+          '<span class="help-text">可同时分配多个角色，权限取并集</span></div>' +
+          '<div class="field"><label class="label" for="adm-remark">备注</label>' +
+          '<textarea class="control" id="adm-remark" rows="3" placeholder="选填，如所属部门或职责说明">' + esc(isEdit ? admin.remark : '') + '</textarea></div>' +
+          '</div>';
+
+        App.modal({
+          title: isEdit ? '编辑管理员' : '新增管理员',
+          desc: isEdit ? admin.name + ' · ' + admin.account : '创建后台登录账号并分配角色',
+          body: body,
+          width: 580,
+          confirmText: isEdit ? '保存修改' : '创建账号',
+          onConfirm: function () {
+            const accountInput = $('#adm-account');
+            const passwordInput = $('#adm-password');
+            const remark = $('#adm-remark').value.trim();
+            const account = accountInput.value.trim();
+            const password = passwordInput.value;
+            const roles = $$('.js-adm-role:checked').map(function (input) { return input.value; });
+
+            if (!account) { App.toast('请输入登录账号', 'warning'); return false; }
+            if (!/^[a-zA-Z0-9_]{3,24}$/.test(account)) { App.toast('账号需为 3-24 位字母、数字或下划线', 'warning'); return false; }
+            if (!roles.length) { App.toast('请至少分配一个角色', 'warning'); return false; }
+            if (!isEdit && password.length < 8) { App.toast('初始密码至少 8 位', 'warning'); return false; }
+            if (!isEdit && ADMINS.some(function (item) { return item.account === account; })) {
+              App.toast('该登录账号已存在', 'warning'); return false;
+            }
+
+            if (isEdit) {
+              admin.roles = roles;
+              admin.roleName = roles[0];
+              admin.remark = remark;
+              if (password) admin.passwordUpdatedAt = Date.now();
+              App.toast('管理员「' + admin.name + '」已更新', 'success');
+            } else {
+              ADMINS.unshift({
+                id: 'a' + (ADMINS.length + 1),
+                name: account,
+                account: account,
+                roleName: roles[0],
+                roles: roles,
+                email: account + '@sdu.edu.cn',
+                status: 'active',
+                lastLoginAt: null,
+                lastIp: '—',
+                remark: remark,
+                createdAt: Date.now()
+              });
+              App.toast('管理员账号「' + account + '」已创建', 'success');
+            }
+            state.page = 1;
+            renderTable();
+          }
+        });
+      }
+
+      function resetPassword(admin) {
+        App.modal({
+          title: '重置登录密码',
+          desc: '重置后系统将生成临时密码，并要求该管理员下次登录时修改。',
+          body: '<div class="text-md muted">目标账号：<b>' + esc(admin.account) + '</b>（' + esc(admin.name) + '）</div>',
+          confirmText: '确认重置',
+          onConfirm: function () {
+            const temp = 'Sdu@' + Math.floor(100000 + Math.random() * 900000);
+            App.toast('临时密码已生成：' + temp + '（已发送至绑定邮箱）', 'success', 5200);
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      ROLES.forEach(function (role) {
+        const option = document.createElement('option');
+        option.value = role.name;
+        option.textContent = role.name;
+        $('#admin-role-filter').appendChild(option);
+      });
+
+      $('#new-admin-btn').addEventListener('click', function () { openAdminModal(null); });
+
+      $('#admin-keyword').addEventListener('input', App.debounce(function () {
+        state.keyword = this.value;
+        state.page = 1;
+        renderTable();
+      }, 220));
+
+      $('#admin-role-filter').addEventListener('change', function () {
+        state.role = this.value;
+        state.page = 1;
+        renderTable();
+      });
+
+      $('#admin-status-seg').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-status]');
+        if (!button) return;
+        state.status = button.getAttribute('data-status');
+        state.page = 1;
+        $$('#admin-status-seg button').forEach(function (item) { item.classList.toggle('active', item === button); });
+        renderTable();
+      });
+
+      $('#admin-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const admin = ADMINS.find(function (item) { return item.id === button.getAttribute('data-id'); });
+        if (!admin) return;
+        if (button.getAttribute('data-action') === 'edit') openAdminModal(admin);
+        else resetPassword(admin);
+      });
+
+      $('#admin-table').addEventListener('change', function (event) {
+        const input = event.target.closest('.js-admin-switch');
+        if (!input) return;
+        const admin = ADMINS.find(function (item) { return item.id === input.getAttribute('data-id'); });
+        if (!admin) return;
+        if (admin.account === 'admin' && !input.checked) {
+          input.checked = true;
+          App.toast('系统初始化账号不可停用', 'warning');
+          return;
+        }
+        admin.status = input.checked ? 'active' : 'disabled';
+        App.toast('账号「' + admin.account + '」已' + (input.checked ? '启用' : '停用'), input.checked ? 'success' : 'info');
+        renderTable();
+      });
+
+      renderTable();
+    })();
+  </script>
+</body>
+</html>

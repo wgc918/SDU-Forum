@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>操作审计日志 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="audit-logs">
+    <!--
+      ======================================================================
+      页面：操作审计日志
+      ----------------------------------------------------------------------
+      数据字段（AUDIT_LOGS）：
+        id / createdAt / operator / role / action / tone / targetType / target /
+        ip / result(success|failed) / detail / changes[{ label, before, after, kind }]
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET /api/admin/audit-logs?operator=&action=&target=&from=&to=
+        GET /api/admin/audit-logs/export
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">操作审计日志</h1>
+        <p class="page-desc">记录后台全部写操作，支持按操作人、类型与目标对象追溯</p>
+      </div>
+    </div>
+
+    <div class="audit-banner">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
+        <path d="m9 12 2 2 4-4"/>
+      </svg>
+      <span>审计日志不可删除、不可篡改，系统保留 180 天。导出行为同样会被记录。</span>
+      <button type="button" class="btn btn-secondary btn-sm" id="audit-export-btn">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>
+        </svg>
+        导出
+      </button>
+    </div>
+
+    <div class="card filter-card">
+      <div class="filter-field">
+        <label class="filter-label" for="audit-operator">操作人</label>
+        <select class="select" id="audit-operator"><option value="">全部操作人</option></select>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="audit-action">操作类型</label>
+        <select class="select" id="audit-action"><option value="">全部类型</option></select>
+      </div>
+      <div class="filter-field" style="flex:1;min-width:180px">
+        <label class="filter-label" for="audit-target">目标对象</label>
+        <input class="control" id="audit-target" type="text" placeholder="输入目标对象关键词" autocomplete="off">
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="audit-from">时间范围</label>
+        <div class="flex items-center gap-2">
+          <input class="control" id="audit-from" type="date" style="width:140px">
+          <span class="text-sm muted">至</span>
+          <input class="control" id="audit-to" type="date" style="width:140px">
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-secondary" id="audit-reset-btn">重置</button>
+      </div>
+    </div>
+
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">审计记录</div>
+          <div class="card-sub" id="audit-count">共 0 条记录</div>
+        </div>
+        <div class="card-head-side">
+          <span class="text-sm muted">点击任意行查看操作前后对比</span>
+        </div>
+      </div>
+      <div id="audit-table"></div>
+      <div id="audit-pagination" style="padding:0 20px 16px"></div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('audit-logs');
+
+      const $ = App.$;
+      const esc = App.escapeHtml;
+      const LOGS = window.AUDIT_LOGS;
+
+      const state = { operator: '', action: '', target: '', from: '', to: '', page: 1, pageSize: 10 };
+
+      function filtered() {
+        const target = state.target.trim().toLowerCase();
+        const from = state.from ? new Date(state.from + 'T00:00:00').getTime() : 0;
+        const to = state.to ? new Date(state.to + 'T23:59:59').getTime() : 0;
+
+        return LOGS.filter(function (item) {
+          if (state.operator && item.operator !== state.operator) return false;
+          if (state.action && item.action !== state.action) return false;
+          if (target && (item.target + ' ' + item.targetType).toLowerCase().indexOf(target) === -1) return false;
+          if (from && item.createdAt < from) return false;
+          if (to && item.createdAt > to) return false;
+          return true;
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         表格
+         --------------------------------------------------------------- */
+      function renderTable() {
+        const rows = filtered();
+        const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const pageRows = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+        $('#audit-count').textContent = '共 ' + rows.length + ' 条记录' +
+          (rows.length !== LOGS.length ? '（全部 ' + LOGS.length + ' 条）' : '');
+
+        App.renderTable('#audit-table', [
+          {
+            title: '时间', width: '158px',
+            cell: function (item) {
+              return '<span class="audit-time">' + App.fmtDate(item.createdAt, 'YYYY-MM-DD HH:mm:ss') + '</span>';
+            }
+          },
+          {
+            title: '操作人', width: '118px',
+            cell: function (item) {
+              return '<div class="table-user">' + App.avatarHTML(item.operator, item.id, 26) +
+                '<span class="cell-main">' + esc(item.operator) + '</span></div>';
+            }
+          },
+          {
+            title: '角色', width: '98px',
+            cell: function (item) { return '<span class="text-sm muted">' + esc(item.role) + '</span>'; }
+          },
+          {
+            title: '操作类型', width: '108px',
+            cell: function (item) { return App.pill(item.action, item.tone); }
+          },
+          {
+            title: '目标对象',
+            cell: function (item) {
+              return '<div class="audit-target"><div class="cell-main">' + esc(item.target) + '</div>' +
+                '<div class="cell-sub">' + esc(item.targetType) + '</div></div>';
+            }
+          },
+          {
+            title: 'IP', width: '112px',
+            cell: function (item) { return '<span class="cell-mono">' + esc(item.ip) + '</span>'; }
+          },
+          {
+            title: '结果', width: '82px',
+            cell: function (item) {
+              return item.result === 'success' ? App.pill('成功', 'success') : App.pill('失败', 'danger');
+            }
+          },
+          {
+            title: '详情', width: '52px', align: 'right',
+            cell: function () { return '<span class="cell-mono">查看</span>'; }
+          }
+        ], pageRows, {
+          emptyText: '没有匹配的审计记录',
+          emptyDesc: '请调整筛选条件后重试',
+          emptyIcon: 'history',
+          onRowClick: openDetail
+        });
+
+        App.renderPagination('#audit-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: rows.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderTable();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         底部详情抽屉
+         --------------------------------------------------------------- */
+      function diffColumn(title, side, item) {
+        const hasDelete = item.changes.some(function (change) { return change.kind === 'delete'; });
+        const hasAdd = item.changes.some(function (change) { return change.kind === 'add'; });
+        const className = side === 'before' && hasDelete ? ' removed' : (side === 'after' && hasAdd ? ' added' : '');
+
+        return '<div class="diff-col' + className + '">' +
+          '<div class="diff-col-head">' + title + '</div>' +
+          item.changes.map(function (change) {
+            const value = side === 'before' ? change.before : change.after;
+            let valueClass = '';
+            if (change.kind === 'delete' && side === 'before') valueClass = ' is-red';
+            if (change.kind === 'add' && side === 'after') valueClass = ' is-green';
+            if (value === '—') valueClass += ' is-empty';
+            return '<div class="diff-row"><span class="diff-label">' + esc(change.label) + '</span>' +
+              '<span class="diff-value' + valueClass + '">' + esc(value) + '</span></div>';
+          }).join('') + '</div>';
+      }
+
+      function openDetail(item) {
+        const body = '<div class="audit-sheet-meta">' +
+          '<div><div class="audit-meta-label">操作人</div><div class="audit-meta-value">' + esc(item.operator) + ' · ' + esc(item.role) + '</div></div>' +
+          '<div><div class="audit-meta-label">操作时间</div><div class="audit-meta-value">' + App.fmtDateTime(item.createdAt) + '</div></div>' +
+          '<div><div class="audit-meta-label">来源 IP</div><div class="audit-meta-value mono">' + esc(item.ip) + '</div></div>' +
+          '<div><div class="audit-meta-label">目标对象</div><div class="audit-meta-value">' + esc(item.target) + '</div></div>' +
+          '<div><div class="audit-meta-label">操作类型</div><div class="audit-meta-value">' + App.pill(item.action, item.tone) + '</div></div>' +
+          '<div><div class="audit-meta-label">执行结果</div><div class="audit-meta-value">' +
+          (item.result === 'success' ? App.pill('成功', 'success') : App.pill('失败', 'danger')) + '</div></div>' +
+          '</div>' +
+          '<div class="drawer-section"><div class="drawer-section-title">操作说明</div>' +
+          '<div class="detail-text">' + esc(item.detail) + '</div></div>' +
+          '<div class="drawer-section"><div class="diff-head"><div class="drawer-section-title" style="margin:0">关键值对比</div>' +
+          '<div class="diff-legend"><span><i style="background:var(--danger)"></i>删除</span><span><i style="background:var(--success)"></i>新增</span></div></div>' +
+          '<div class="diff-grid">' + diffColumn('操作前', 'before', item) + diffColumn('操作后', 'after', item) + '</div></div>';
+
+        App.drawer({
+          title: '操作详情',
+          subtitle: App.fmtDate(item.createdAt, 'YYYY-MM-DD HH:mm:ss') + ' · ' + item.action,
+          body: body,
+          side: 'bottom',
+          height: '70vh'
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         导出
+         --------------------------------------------------------------- */
+      function exportCsv() {
+        const rows = filtered();
+        if (!rows.length) {
+          App.toast('当前筛选条件下没有可导出的记录', 'warning');
+          return;
+        }
+        const header = ['时间', '操作人', '角色', '操作类型', '目标类型', '目标对象', 'IP', '结果', '详情'];
+        const lines = [header.join(',')].concat(rows.map(function (item) {
+          return [
+            App.fmtDate(item.createdAt, 'YYYY-MM-DD HH:mm:ss'),
+            item.operator,
+            item.role,
+            item.action,
+            item.targetType,
+            item.target,
+            item.ip,
+            item.result === 'success' ? '成功' : '失败',
+            item.detail
+          ].map(function (value) {
+            return '"' + String(value).replace(/"/g, '""') + '"';
+          }).join(',');
+        }));
+
+        const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'audit-logs-' + App.fmtDate(Date.now(), 'YYYYMMDD-HHmmss') + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        App.toast('已导出 ' + rows.length + ' 条审计记录', 'success');
+      }
+
+      /* ---------------------------------------------------------------
+         筛选
+         --------------------------------------------------------------- */
+      const operators = [];
+      const actions = [];
+      LOGS.forEach(function (item) {
+        if (operators.indexOf(item.operator) === -1) operators.push(item.operator);
+        if (actions.indexOf(item.action) === -1) actions.push(item.action);
+      });
+      operators.forEach(function (name) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        $('#audit-operator').appendChild(option);
+      });
+      actions.forEach(function (name) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        $('#audit-action').appendChild(option);
+      });
+
+      $('#audit-operator').addEventListener('change', function () {
+        state.operator = this.value;
+        state.page = 1;
+        renderTable();
+      });
+      $('#audit-action').addEventListener('change', function () {
+        state.action = this.value;
+        state.page = 1;
+        renderTable();
+      });
+      $('#audit-target').addEventListener('input', App.debounce(function () {
+        state.target = this.value;
+        state.page = 1;
+        renderTable();
+      }, 220));
+      ['#audit-from', '#audit-to'].forEach(function (selector) {
+        $(selector).addEventListener('change', function () {
+          state.from = $('#audit-from').value;
+          state.to = $('#audit-to').value;
+          state.page = 1;
+          renderTable();
+        });
+      });
+
+      $('#audit-reset-btn').addEventListener('click', function () {
+        state.operator = '';
+        state.action = '';
+        state.target = '';
+        state.from = '';
+        state.to = '';
+        state.page = 1;
+        $('#audit-operator').value = '';
+        $('#audit-action').value = '';
+        $('#audit-target').value = '';
+        $('#audit-from').value = '';
+        $('#audit-to').value = '';
+        renderTable();
+        App.toast('筛选条件已重置', 'info');
+      });
+
+      $('#audit-export-btn').addEventListener('click', exportCsv);
+
+      renderTable();
+    })();
+  </script>
+</body>
+</html>

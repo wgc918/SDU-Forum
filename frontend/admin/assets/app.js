@@ -24,6 +24,10 @@
     lightbulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
     megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
     chart: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
+    activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+    server: '<rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/>',
+    copy: '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>',
     history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
@@ -355,8 +359,12 @@
      ======================================================================== */
   function drawer(opts) {
     const options = opts || {};
-    const overlay = el('div', { class: 'overlay overlay-drawer' });
-    const panel = el('div', { class: 'drawer', style: { width: (options.width || 480) + 'px' } });
+    const isBottom = options.side === 'bottom';
+    const overlay = el('div', { class: 'overlay ' + (isBottom ? 'overlay-sheet' : 'overlay-drawer') });
+    const panelStyle = isBottom
+      ? { height: options.height ? (typeof options.height === 'number' ? options.height + 'px' : options.height) : 'auto' }
+      : { width: (options.width || 480) + 'px' };
+    const panel = el('div', { class: isBottom ? 'sheet' : 'drawer', style: panelStyle });
 
     const head = el('div', {
       class: 'drawer-head',
@@ -607,7 +615,8 @@
         { key: 'users', label: '用户列表', icon: 'users', href: 'users.html' },
         { key: 'bans', label: '封禁管理', icon: 'ban', href: 'bans.html' },
         { key: 'mutes', label: '禁言管理', icon: 'volume-x', href: 'mutes.html' },
-        { key: 'admins', label: '管理员与角色', icon: 'shield', href: '#' },
+        { key: 'admins', label: '管理员账号', icon: 'shield', href: 'admins.html' },
+        { key: 'roles', label: '角色与权限', icon: 'key', href: 'roles.html' },
         { key: 'verifications', label: '实名认证', icon: 'user-check', href: '#' }
       ]
     },
@@ -659,8 +668,11 @@
     {
       title: '系统',
       items: [
-        { key: 'logs', label: '操作日志', icon: 'history', href: '#' },
-        { key: 'settings', label: '系统设置', icon: 'settings', href: '#' }
+        { key: 'export-approval', label: '导出审批', icon: 'download', href: 'export-approval.html' },
+        { key: 'status', label: '运行状态', icon: 'activity', href: 'status.html' },
+        { key: 'audit-logs', label: '操作审计', icon: 'history', href: 'audit-logs.html' },
+        { key: 'system-logs', label: '系统日志', icon: 'list', href: 'system-logs.html' },
+        { key: 'settings', label: '站点配置', icon: 'settings', href: 'settings.html' }
       ]
     }
   ];

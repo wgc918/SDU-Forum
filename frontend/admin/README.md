@@ -38,7 +38,8 @@ admin/
 | 用户列表 | `users.html` | 已完成 | `GET /api/admin/users`、`POST /api/admin/users/{id}/ban` |
 | 封禁管理 | `bans.html` | 已完成 | `GET /api/admin/bans`、`POST /api/admin/bans` |
 | 禁言管理 | `mutes.html` | 已完成 | `GET /api/admin/mutes`、`POST /api/admin/mutes` |
-| 管理员与角色 | `admins.html` | 待建设 | `GET /api/admin/admins`、`GET /api/admin/roles` |
+| 管理员账号 | `admins.html` | 已完成 | `GET /api/admin/admins`、`POST /api/admin/admins` |
+| 角色与权限 | `roles.html` | 已完成 | `GET /api/admin/roles`、`PUT /api/admin/roles/{id}/permissions` |
 | 实名认证 | `verifications.html` | 待建设 | `GET /api/admin/verifications` |
 | 审核队列 | `review.html` | 已完成 | `GET /api/admin/review/queue`、`POST /api/admin/review/batch` |
 | 帖子管理 | `posts.html` | 已完成 | `GET /api/admin/posts`、`POST /api/admin/posts/{id}/approve` |
@@ -52,8 +53,11 @@ admin/
 | 推荐位管理 | `recommendations.html` | 已完成 | `GET /api/admin/recommendations`、`PUT /api/admin/recommendations/order` |
 | 积分与等级 | `points.html` | 已完成 | `GET /api/admin/points/levels`、`GET /api/admin/points/logs` |
 | 数据统计 | `analytics.html` | 已完成 | `GET /api/admin/analytics/overview`、`GET /api/admin/analytics/categories` |
-| 操作日志 | `logs.html` | 待建设 | `GET /api/admin/logs` |
-| 系统设置 | `settings.html` | 待建设 | `GET /api/admin/settings` |
+| 导出审批 | `export-approval.html` | 已完成 | `GET /api/admin/export-requests`、`PATCH /api/admin/export-requests/{id}` |
+| 运行状态 | `status.html` | 已完成 | `GET /api/admin/system/status`、`GET /api/admin/system/metrics` |
+| 操作审计 | `audit-logs.html` | 已完成 | `GET /api/admin/audit-logs` |
+| 系统日志 | `system-logs.html` | 已完成 | `GET /api/admin/system-logs` |
+| 站点配置 | `settings.html` | 已完成 | `GET /api/admin/settings`、`PUT /api/admin/settings` |
 
 未实现的菜单项统一指向 `#`，点击后通过 Toast 提示「页面正在建设中」，不会产生 404。
 
@@ -61,7 +65,7 @@ admin/
 
 所有数据来自 `assets/mock.js` 暴露的全局常量，页面不使用硬编码表格行：
 
-`USERS`、`POSTS`、`COMMENTS`、`TAGS`、`BANS`、`REPORTS`、`FEEDBACKS`、`ANNOUNCEMENTS`、`ANNOUNCEMENT_GROUPS`、`NOTIFICATION_GROUPS`、`NOTIFICATION_TEMPLATES`、`POINT_LEVELS`、`POINT_RULES`、`POINT_LOGS`、`POINT_LEADERBOARD`、`RECOMMENDATION_META`、`RECOMMENDATIONS`、`ANALYTICS`、`LOGS`、`ADMINS`、`ROLES`、`SENSITIVE_WORDS`、`STATS`、`DASHBOARD`、`DICT`。
+`USERS`、`POSTS`、`COMMENTS`、`TAGS`、`BANS`、`REPORTS`、`FEEDBACKS`、`ANNOUNCEMENTS`、`ANNOUNCEMENT_GROUPS`、`NOTIFICATION_GROUPS`、`NOTIFICATION_TEMPLATES`、`POINT_LEVELS`、`POINT_RULES`、`POINT_LOGS`、`POINT_LEADERBOARD`、`RECOMMENDATION_META`、`RECOMMENDATIONS`、`ANALYTICS`、`LOGS`、`ADMINS`、`ROLES`、`PERMISSION_MODULES`、`EXPORT_REQUESTS`、`STATUS_KPIS`、`STATUS_SERIES`、`STATUS_ERRORS`、`STATUS_RESOURCES`、`STATUS_NETWORK`、`AUDIT_LOGS`、`SYSTEM_LOGS`、`SYSTEM_LOG_MODULES`、`SETTINGS_SECTIONS`、`SETTINGS_META`、`SENSITIVE_WORDS`、`STATS`、`DASHBOARD`、`DICT`。
 
 ### 用户列表（`users.html`）
 
@@ -116,6 +120,48 @@ admin/
 - 数据字段：`ANALYTICS.daily`（180 天）、`ANALYTICS.categories`、`ANALYTICS.retention`
 - 接口：`GET /api/admin/analytics/overview?days=30&compare=1`、`GET /api/admin/analytics/categories`、`GET /api/admin/analytics/retention`、`GET /api/admin/analytics/active-users`
 - 已实现：7 / 30 / 90 天切换、对比上期开关、4 个 KPI（环比 + sparkline）、成员增长双线图（含上期对比线）、分类堆叠柱状图、次月留存环形图、分类表现与活跃用户 TOP10 表格。
+
+### 管理员账号（`admins.html`）
+
+- 数据字段：`ADMINS`（`name / account / roles[] / status / lastLoginAt / lastIp / remark`）
+- 接口：`GET /api/admin/admins`、`POST /api/admin/admins`、`PUT /api/admin/admins/{id}`、`PATCH /api/admin/admins/{id}/status`、`POST /api/admin/admins/{id}/reset-password`
+- 已实现：关键词 / 角色 / 状态筛选、分页、角色胶囊、状态开关、新增与编辑模态框（账号、初始密码、角色多选、备注）、重置密码。
+
+### 角色与权限（`roles.html`）
+
+- 数据字段：`ROLES.permissionKeys`、`PERMISSION_MODULES`（7 大模块、28 个权限点）
+- 接口：`GET /api/admin/roles`、`GET /api/admin/permissions`、`PUT /api/admin/roles/{id}/permissions`
+- 已实现：左侧角色列表与内置标记、右侧权限矩阵、模块级全选 / 半选（indeterminate）、未保存提示、保存与重置、切换角色时未保存确认。
+
+### 数据导出审批（`export-approval.html`）
+
+- 数据字段：`EXPORT_REQUESTS`
+- 接口：`GET /api/admin/export-requests`、`PATCH /api/admin/export-requests/{id}`
+- 已实现：待审批 / 已通过 / 已驳回 Tab 与计数、行展开申请理由、审批抽屉、通过审批、驳回时强制填写理由。
+
+### 运行状态（`status.html`）
+
+- 数据字段：`STATUS_KPIS`、`STATUS_SERIES`、`STATUS_ERRORS`、`STATUS_RESOURCES`、`STATUS_NETWORK`
+- 接口：`GET /api/admin/system/status`、`GET /api/admin/system/metrics?range=24h`、`GET /api/admin/system/errors`
+- 已实现：CPU / 内存 / 磁盘 / 在线用户 KPI 与 sparkline、QPS 与响应时间双 Y 轴折线（1h / 24h / 7d）、异常请求表格、资源仪表条与网络 I/O 双线图。
+
+### 操作审计日志（`audit-logs.html`）
+
+- 数据字段：`AUDIT_LOGS`（含 `changes[{ label, before, after, kind }]`）
+- 接口：`GET /api/admin/audit-logs`、`GET /api/admin/audit-logs/export`
+- 已实现：不可篡改提示条与导出、操作人 / 类型 / 目标 / 时间范围筛选、精确到秒的时间列、底部抽屉展示操作前后双栏对比（删除红色、新增绿色）。
+
+### 系统日志（`system-logs.html`）
+
+- 数据字段：`SYSTEM_LOGS`、`SYSTEM_LOG_MODULES`
+- 接口：`GET /api/admin/system-logs?level=&module=&from=&to=&keyword=`
+- 已实现：ERROR / WARN / INFO / DEBUG 多选 Chips、模块 / 时间 / 关键词筛选、等宽时间戳与级别淡色行底、底部抽屉深色 JSON payload（行号 + 复制按钮）。
+
+### 站点配置（`settings.html`）
+
+- 数据字段：`SETTINGS_SECTIONS`（5 组、24 项配置）、`SETTINGS_META`
+- 接口：`GET /api/admin/settings`、`PUT /api/admin/settings`、`POST /api/admin/settings/reset`
+- 已实现：左侧锚点导航与滚动高亮、行式配置表单（开关 / 数字 / 下拉）、底部固定保存条、数值范围校验、保存后 Toast 与最后修改信息、恢复默认。
 
 ### 登录（`login.html`）
 

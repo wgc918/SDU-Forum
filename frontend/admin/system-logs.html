@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>系统日志 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="system-logs">
+    <!--
+      ======================================================================
+      页面：系统日志
+      ----------------------------------------------------------------------
+      数据字段：
+        SYSTEM_LOGS        id / ts / level(ERROR|WARN|INFO|DEBUG) / module / message / payload
+        SYSTEM_LOG_MODULES 模块字典
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET /api/admin/system-logs?level=&module=&from=&to=&keyword=
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">系统日志</h1>
+        <p class="page-desc">查看应用运行日志与异常堆栈，点击行可展开完整 JSON payload</p>
+      </div>
+    </div>
+
+    <div class="card filter-card">
+      <div class="filter-field" style="min-width:auto">
+        <label class="filter-label">日志级别</label>
+        <div class="chips" id="log-levels"></div>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="log-module">模块</label>
+        <select class="select" id="log-module"><option value="">全部模块</option></select>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="log-from">时间范围</label>
+        <div class="flex items-center gap-2">
+          <input class="control" id="log-from" type="date" style="width:140px">
+          <span class="text-sm muted">至</span>
+          <input class="control" id="log-to" type="date" style="width:140px">
+        </div>
+      </div>
+      <div class="filter-field" style="flex:1;min-width:200px">
+        <label class="filter-label" for="log-keyword">关键词</label>
+        <input class="control" id="log-keyword" type="text" placeholder="搜索日志内容、请求 ID 或 IP" autocomplete="off">
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-secondary" id="log-reset-btn">重置</button>
+      </div>
+    </div>
+
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">运行日志</div>
+          <div class="card-sub" id="log-count">共 0 条日志</div>
+        </div>
+        <div class="card-head-side">
+          <span class="text-sm muted">点击行查看 JSON payload</span>
+        </div>
+      </div>
+      <div class="log-table-wrap" id="log-table"></div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('system-logs');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const LOGS = window.SYSTEM_LOGS;
+      const MODULES = window.SYSTEM_LOG_MODULES;
+
+      const LEVEL_META = {
+        ERROR: { tone: 'danger', color: 'var(--danger)' },
+        WARN: { tone: 'warning', color: 'var(--warning)' },
+        INFO: { tone: 'info', color: 'var(--info)' },
+        DEBUG: { tone: 'neutral', color: 'var(--text-3)' }
+      };
+
+      const state = {
+        levels: new Set(['ERROR', 'WARN', 'INFO', 'DEBUG']),
+        module: '',
+        keyword: '',
+        from: '',
+        to: ''
+      };
+
+      function filtered() {
+        const keyword = state.keyword.trim().toLowerCase();
+        const from = state.from ? new Date(state.from + 'T00:00:00').getTime() : 0;
+        const to = state.to ? new Date(state.to + 'T23:59:59').getTime() : 0;
+
+        return LOGS.filter(function (item) {
+          if (!state.levels.has(item.level)) return false;
+          if (state.module && item.module !== state.module) return false;
+          if (from && item.ts < from) return false;
+          if (to && item.ts > to) return false;
+          if (keyword) {
+            const text = (item.message + ' ' + item.module + ' ' + item.payload.requestId + ' ' + item.payload.ip).toLowerCase();
+            if (text.indexOf(keyword) === -1) return false;
+          }
+          return true;
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         级别 Chips
+         --------------------------------------------------------------- */
+      function renderChips() {
+        $('#log-levels').innerHTML = Object.keys(LEVEL_META).map(function (level) {
+          const count = LOGS.filter(function (item) { return item.level === level; }).length;
+          return '<button type="button" class="chip active" data-level="' + level + '">' +
+            '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + LEVEL_META[level].color + ';margin-right:6px"></span>' +
+            level + '<span style="margin-left:4px;opacity:.65">' + count + '</span></button>';
+        }).join('');
+      }
+
+      function syncChips() {
+        $$('#log-levels .chip').forEach(function (chip) {
+          chip.classList.toggle('active', state.levels.has(chip.getAttribute('data-level')));
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         表格
+         --------------------------------------------------------------- */
+      function renderTable() {
+        const rows = filtered();
+        $('#log-count').textContent = '共 ' + rows.length + ' 条日志' +
+          (rows.length !== LOGS.length ? '（全部 ' + LOGS.length + ' 条）' : '');
+
+        if (!rows.length) {
+          $('#log-table').innerHTML = '<div style="padding:28px">' +
+            App.emptyHTML('没有匹配的日志', '请调整级别、模块或关键词筛选', 'file-text') + '</div>';
+          return;
+        }
+
+        $('#log-table').innerHTML = '<table class="log-table">' +
+          '<thead><tr><th style="width:152px">时间</th><th style="width:82px">级别</th>' +
+          '<th style="width:100px">模块</th><th>日志内容</th><th style="width:170px">请求 ID</th></tr></thead>' +
+          '<tbody>' + rows.map(function (item) {
+            return '<tr class="level-' + item.level.toLowerCase() + '" data-id="' + item.id + '">' +
+              '<td><span class="log-ts">' + App.fmtDate(item.ts, 'YYYY-MM-DD HH:mm:ss') + '</span></td>' +
+              '<td>' + App.pill(item.level, LEVEL_META[item.level].tone) + '</td>' +
+              '<td><span class="log-module">' + esc(item.module) + '</span></td>' +
+              '<td><div class="log-msg">' + esc(item.message) +
+              '<div class="cell-sub mono">' + esc(item.payload.method) + ' ' + esc(item.payload.path) + ' · ' + item.payload.latencyMs + 'ms</div></div></td>' +
+              '<td><span class="log-ts">' + esc(item.payload.requestId) + '</span></td>' +
+              '</tr>';
+          }).join('') + '</tbody></table>';
+      }
+
+      /* ---------------------------------------------------------------
+         JSON 底部抽屉
+         --------------------------------------------------------------- */
+      function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            App.toast('JSON payload 已复制', 'success');
+          }).catch(function () {
+            App.toast('复制失败，请手动选择文本', 'warning');
+          });
+          return;
+        }
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        try {
+          document.execCommand('copy');
+          App.toast('JSON payload 已复制', 'success');
+        } catch (error) {
+          App.toast('复制失败，请手动选择文本', 'warning');
+        }
+        area.remove();
+      }
+
+      function openPayload(item) {
+        const json = JSON.stringify(item.payload, null, 2);
+        const lines = json.split('\n');
+
+        const body = '<div class="json-toolbar">' +
+          '<div class="json-toolbar-left">' + App.pill(item.level, LEVEL_META[item.level].tone) +
+          '<span class="text-sm muted" style="color:#94A3B8">' + esc(item.module) + ' · ' + esc(item.payload.requestId) + '</span></div>' +
+          '<button type="button" class="btn btn-secondary btn-sm" id="json-copy-btn">' +
+          App.icon('copy', 14) + ' 复制 JSON</button>' +
+          '</div>' +
+          '<div class="json-viewer" id="json-viewer">' + lines.map(function (line, index) {
+            return '<div class="json-line"><span class="json-ln">' + (index + 1) + '</span><code class="json-code">' + esc(line) + '</code></div>';
+          }).join('') + '</div>';
+
+        const drawer = App.drawer({
+          title: '日志详情',
+          subtitle: App.fmtDate(item.ts, 'YYYY-MM-DD HH:mm:ss') + ' · ' + item.level,
+          body: body,
+          side: 'bottom',
+          height: '74vh'
+        });
+
+        const sheet = drawer.overlay ? drawer.overlay.querySelector('.sheet') : null;
+        if (sheet) sheet.classList.add('json-sheet');
+
+        const copyBtn = $('#json-copy-btn');
+        if (copyBtn) {
+          copyBtn.addEventListener('click', function () { copyText(json); });
+        }
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      MODULES.forEach(function (name) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        $('#log-module').appendChild(option);
+      });
+
+      $('#log-levels').addEventListener('click', function (event) {
+        const chip = event.target.closest('.chip[data-level]');
+        if (!chip) return;
+        const level = chip.getAttribute('data-level');
+        if (state.levels.has(level)) state.levels.delete(level);
+        else state.levels.add(level);
+        chip.classList.toggle('active', state.levels.has(level));
+        renderTable();
+      });
+
+      $('#log-module').addEventListener('change', function () {
+        state.module = this.value;
+        renderTable();
+      });
+      ['#log-from', '#log-to'].forEach(function (selector) {
+        $(selector).addEventListener('change', function () {
+          state.from = $('#log-from').value;
+          state.to = $('#log-to').value;
+          renderTable();
+        });
+      });
+      $('#log-keyword').addEventListener('input', App.debounce(function () {
+        state.keyword = this.value;
+        renderTable();
+      }, 220));
+
+      $('#log-reset-btn').addEventListener('click', function () {
+        state.levels = new Set(['ERROR', 'WARN', 'INFO', 'DEBUG']);
+        state.module = '';
+        state.keyword = '';
+        state.from = '';
+        state.to = '';
+        $('#log-module').value = '';
+        $('#log-keyword').value = '';
+        $('#log-from').value = '';
+        $('#log-to').value = '';
+        syncChips();
+        renderTable();
+        App.toast('筛选条件已重置', 'info');
+      });
+
+      $('#log-table').addEventListener('click', function (event) {
+        const row = event.target.closest('tr[data-id]');
+        if (!row) return;
+        const item = LOGS.find(function (log) { return log.id === row.getAttribute('data-id'); });
+        if (item) openPayload(item);
+      });
+
+      renderChips();
+      renderTable();
+    })();
+  </script>
+</body>
+</html>

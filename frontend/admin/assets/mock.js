@@ -85,15 +85,19 @@
 
   const ADMINS = ADMIN_NAMES.map(function (name, index) {
     const role = ROLES[index === 0 ? 0 : (index % (ROLES.length - 1)) + 1];
+    const ips = ['10.12.3.44', '10.12.8.121', '172.16.24.9', '10.12.5.37', '172.16.30.88'];
     return {
       id: 'a' + (index + 1),
       name: name,
       account: index === 0 ? 'admin' : role.key + '.' + (index + 1),
       roleId: role.id,
       roleName: role.name,
+      roles: [role.name],
       email: (index === 0 ? 'admin' : role.key + (index + 1)) + '@sdu.edu.cn',
       status: index === 10 ? 'disabled' : 'active',
       lastLoginAt: index === 0 ? ago(0, 0.2) : ago(ri(0, 12), ri(0, 23)),
+      lastIp: ips[index % ips.length],
+      remark: index === 0 ? '系统初始化账号，请勿随意停用' : '',
       createdAt: ago(ri(120, 720))
     };
   });
@@ -820,6 +824,387 @@
   };
 
   /* ========================================================================
+     权限矩阵 / 管理员角色
+     ======================================================================== */
+  const PERMISSION_MODULES = [
+    {
+      key: 'user', name: '用户管理', desc: '用户资料、状态与认证审核',
+      points: [
+        { key: 'user.view', label: '查看用户列表' },
+        { key: 'user.edit', label: '编辑用户资料' },
+        { key: 'user.ban', label: '封禁 / 禁言用户' },
+        { key: 'user.verify', label: '审核实名认证' },
+        { key: 'user.role', label: '调整用户角色' }
+      ]
+    },
+    {
+      key: 'content', name: '内容管理', desc: '帖子、评论、标签与敏感词治理',
+      points: [
+        { key: 'post.review', label: '审核帖子内容' },
+        { key: 'post.delete', label: '删除违规帖子' },
+        { key: 'comment.delete', label: '删除违规评论' },
+        { key: 'tag.manage', label: '维护标签体系' },
+        { key: 'sensitive.manage', label: '管理敏感词库' }
+      ]
+    },
+    {
+      key: 'operation', name: '运营管理', desc: '公告、推送、推荐位与积分运营',
+      points: [
+        { key: 'announcement.manage', label: '发布与编辑公告' },
+        { key: 'push.send', label: '发送定向推送' },
+        { key: 'recommend.manage', label: '配置推荐位' },
+        { key: 'points.manage', label: '调整积分与等级' }
+      ]
+    },
+    {
+      key: 'permission', name: '权限管理', desc: '管理员账号与角色权限配置',
+      points: [
+        { key: 'admin.manage', label: '管理管理员账号' },
+        { key: 'role.manage', label: '创建与编辑角色' },
+        { key: 'permission.assign', label: '分配角色权限' }
+      ]
+    },
+    {
+      key: 'analytics', name: '数据分析', desc: '统计看板、报表与数据导出',
+      points: [
+        { key: 'analytics.view', label: '查看数据看板' },
+        { key: 'analytics.export', label: '导出统计数据' },
+        { key: 'report.view', label: '查看举报与反馈' }
+      ]
+    },
+    {
+      key: 'monitor', name: '系统监控', desc: '运行状态、日志与告警处理',
+      points: [
+        { key: 'status.view', label: '查看运行状态' },
+        { key: 'log.system', label: '查看系统日志' },
+        { key: 'log.audit', label: '查看审计日志' },
+        { key: 'alert.manage', label: '处理异常告警' }
+      ]
+    },
+    {
+      key: 'system', name: '系统设置', desc: '站点、安全、邮件与备份配置',
+      points: [
+        { key: 'settings.site', label: '站点基础配置' },
+        { key: 'settings.email', label: '邮件服务配置' },
+        { key: 'settings.security', label: '安全策略配置' },
+        { key: 'settings.backup', label: '数据备份与恢复' }
+      ]
+    }
+  ];
+
+  const ROLE_PERMISSION_MAP = {
+    role1: 'ALL',
+    role2: ['post.review', 'post.delete', 'comment.delete', 'tag.manage', 'sensitive.manage', 'analytics.view'],
+    role3: ['user.view', 'user.edit', 'user.ban', 'user.verify', 'log.audit'],
+    role4: ['post.review', 'post.delete', 'comment.delete', 'report.view'],
+    role5: ['announcement.manage', 'push.send', 'recommend.manage', 'points.manage', 'analytics.view'],
+    role6: ['analytics.view', 'analytics.export', 'report.view'],
+    role7: ['user.view', 'user.edit', 'report.view', 'analytics.view'],
+    role8: ['analytics.view', 'status.view', 'log.audit']
+  };
+
+  ROLES.forEach(function (role) {
+    const preset = ROLE_PERMISSION_MAP[role.id];
+    role.permissionKeys = preset === 'ALL'
+      ? PERMISSION_MODULES.reduce(function (keys, module) {
+          return keys.concat(module.points.map(function (point) { return point.key; }));
+        }, [])
+      : (preset || []).slice();
+  });
+
+  /* ========================================================================
+     数据导出审批
+     ======================================================================== */
+  const EXPORT_REQUESTS = [
+    { id: 'ex1', applicant: '李思静', account: 'content_admin.2', dataType: '用户数据', scope: '2021 - 2026 级全部注册用户', volume: 1286, requestedAt: ago(0, 2), status: 'pending', approver: '', reviewedAt: null, reason: '用于分析新学期用户增长结构与学院分布，输出脱敏后的汇总报表。', reviewNote: '' },
+    { id: 'ex2', applicant: '王浩然', account: 'user_admin.3', dataType: '审计日志', scope: '近 30 天后台操作记录', volume: 8642, requestedAt: ago(0, 5), status: 'pending', approver: '', reviewedAt: null, reason: '配合学校网络中心排查异常登录，需要导出指定时间段的操作审计记录。', reviewNote: '' },
+    { id: 'ex3', applicant: '陈雨欣', account: 'user_admin.4', dataType: '举报记录', scope: '2026-10 至 2026-11 已处理工单', volume: 428, requestedAt: ago(1, 3), status: 'pending', approver: '', reviewedAt: null, reason: '用于月度社区治理复盘，统计举报类型分布与平均处理时长。', reviewNote: '' },
+    { id: 'ex4', applicant: '刘博文', account: 'reviewer.5', dataType: '帖子内容', scope: '「学习科研」分类全部帖子', volume: 2380, requestedAt: ago(1, 8), status: 'pending', approver: '', reviewedAt: null, reason: '开展优质内容评选，需要导出候选帖子的标题、互动数据与发布时间。', reviewNote: '' },
+    { id: 'ex5', applicant: '赵雅琪', account: 'operator.6', dataType: '用户数据', scope: '近 7 天新注册用户', volume: 412, requestedAt: ago(2, 1), status: 'pending', approver: '', reviewedAt: null, reason: '针对新生开展欢迎活动，导出注册用户用于站内信定向触达效果分析。', reviewNote: '' },
+    { id: 'ex6', applicant: '孙宇航', account: 'analyst.7', dataType: '统计数据', scope: '近 90 天社区核心指标', volume: 90, requestedAt: ago(3, 4), status: 'approved', approver: '张明远', reviewedAt: ago(3, 2), reason: '季度运营报告需要完整指标明细，包含日活、发帖与互动趋势。', reviewNote: '已确认用途合规，同意导出。' },
+    { id: 'ex7', applicant: '周静怡', account: 'reviewer.8', dataType: '举报记录', scope: '全部待处理举报工单', volume: 63, requestedAt: ago(4, 6), status: 'approved', approver: '张明远', reviewedAt: ago(4, 3), reason: '需要离线整理高频违规类型，用于优化审核规则。', reviewNote: '同意，导出后请妥善保管。' },
+    { id: 'ex8', applicant: '吴嘉豪', account: 'operator.9', dataType: '帖子内容', scope: '「校园生活」分类精华帖', volume: 156, requestedAt: ago(6, 2), status: 'approved', approver: '李思静', reviewedAt: ago(6, 1), reason: '制作迎新专题页，需要引用精华帖标题与摘要。', reviewNote: '仅限站内展示使用。' },
+    { id: 'ex9', applicant: '郑若曦', account: 'analyst.10', dataType: '用户数据', scope: '已认证用户基础信息', volume: 986, requestedAt: ago(8, 5), status: 'approved', approver: '张明远', reviewedAt: ago(8, 2), reason: '分析认证用户与活跃度的相关性，仅导出学院与年级维度。', reviewNote: '已脱敏，同意。' },
+    { id: 'ex10', applicant: '冯子墨', account: 'support.11', dataType: '统计数据', scope: '近 30 天用户反馈汇总', volume: 186, requestedAt: ago(11, 7), status: 'approved', approver: '李思静', reviewedAt: ago(11, 2), reason: '客服周会需要反馈类型分布与处理时效数据。', reviewNote: '同意导出。' },
+    { id: 'ex11', applicant: '韩心悦', account: 'viewer.12', dataType: '审计日志', scope: '2026-09 全量审计记录', volume: 15230, requestedAt: ago(13, 4), status: 'rejected', approver: '张明远', reviewedAt: ago(13, 1), reason: '个人研究需要，希望获取完整审计日志用于行为分析。', reviewNote: '审计日志涉及敏感操作信息，个人研究用途不予通过，建议申请脱敏汇总数据。' },
+    { id: 'ex12', applicant: '陈雨欣', account: 'user_admin.4', dataType: '用户数据', scope: '全部用户手机号与邮箱', volume: 1286, requestedAt: ago(15, 3), status: 'rejected', approver: '张明远', reviewedAt: ago(15, 2), reason: '短信活动触达需要完整联系方式。', reviewNote: '联系方式属于敏感个人信息，请通过站内信或邮件服务发起，不得直接导出。' },
+    { id: 'ex13', applicant: '刘博文', account: 'reviewer.5', dataType: '帖子内容', scope: '近 6 个月全部帖子原文', volume: 12480, requestedAt: ago(18, 8), status: 'rejected', approver: '李思静', reviewedAt: ago(18, 4), reason: '希望训练内容分类模型，需要大规模帖子语料。', reviewNote: '缺少数据安全方案与脱敏说明，驳回后请补充材料重新申请。' },
+    { id: 'ex14', applicant: '赵雅琪', account: 'operator.6', dataType: '统计数据', scope: '全站历史运营数据', volume: 730, requestedAt: ago(22, 2), status: 'rejected', approver: '张明远', reviewedAt: ago(22, 1), reason: '用于制作社区年度运营总结长图。', reviewNote: '申请范围过大，请按所需指标拆分后重新提交。' }
+  ];
+
+  /* ========================================================================
+     运行状态
+     ======================================================================== */
+  function pad2(value) { return value < 10 ? '0' + value : '' + value; }
+  function labelWith(date, pattern) {
+    if (pattern === 'HH:mm') return pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+    if (pattern === 'HH:00') return pad2(date.getHours()) + ':00';
+    return pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+  }
+
+  const STATUS_SERIES = {};
+  [
+    { key: '1h', count: 12, step: 5 * 60000, fmt: 'HH:mm' },
+    { key: '24h', count: 24, step: 3600000, fmt: 'HH:00' },
+    { key: '7d', count: 7, step: 86400000, fmt: 'MM-DD' }
+  ].forEach(function (range) {
+    const labels = [];
+    const qps = [];
+    const rt = [];
+    for (let i = range.count - 1; i >= 0; i--) {
+      labels.push(labelWith(new Date(NOW - i * range.step), range.fmt));
+      qps.push(ri(90, 340));
+      rt.push(ri(82, 218));
+    }
+    STATUS_SERIES[range.key] = { labels: labels, qps: qps, rt: rt };
+  });
+
+  const STATUS_KPIS = [
+    { key: 'cpu', label: 'CPU 使用率', value: 38.6, suffix: '%', tone: 'primary', icon: 'activity', data: [32, 35, 31, 38, 42, 39, 36, 41, 44, 40, 37, 39, 43, 41, 38, 36, 40, 42, 39, 37, 41, 44, 40, 38] },
+    { key: 'memory', label: '内存使用率', value: 62.4, suffix: '%', tone: 'success', icon: 'server', data: [58, 60, 61, 59, 63, 64, 62, 65, 63, 61, 62, 64, 66, 63, 62, 61, 63, 65, 64, 62, 63, 64, 63, 62] },
+    { key: 'disk', label: '磁盘使用率', value: 71.2, suffix: '%', tone: 'warning', icon: 'database', data: [69, 69, 70, 70, 70, 71, 71, 71, 71, 72, 72, 71, 71, 72, 72, 72, 71, 71, 72, 72, 71, 71, 71, 71] },
+    { key: 'online', label: '在线用户', value: 1286, suffix: '', tone: 'info', icon: 'users', data: [920, 980, 1040, 1120, 1180, 1230, 1290, 1320, 1280, 1210, 1160, 1100, 1050, 1120, 1200, 1260, 1310, 1350, 1320, 1280, 1240, 1210, 1250, 1286] }
+  ];
+
+  const STATUS_ERRORS = [
+    { id: 'se1', createdAt: ago(0, 0.2), path: '/api/v1/posts?page=2', status: 504, count: 18, ip: '10.12.8.121' },
+    { id: 'se2', createdAt: ago(0, 0.8), path: '/api/v1/auth/refresh', status: 401, count: 42, ip: '172.16.24.9' },
+    { id: 'se3', createdAt: ago(0, 1.5), path: '/api/v1/comments', status: 500, count: 7, ip: '10.12.5.37' },
+    { id: 'se4', createdAt: ago(0, 2.4), path: '/api/v1/upload/image', status: 413, count: 12, ip: '172.16.30.88' },
+    { id: 'se5', createdAt: ago(0, 3.1), path: '/api/v1/users/me', status: 403, count: 26, ip: '10.12.3.44' },
+    { id: 'se6', createdAt: ago(0, 4.6), path: '/api/v1/mail/send', status: 502, count: 5, ip: '10.12.8.121' }
+  ];
+
+  const STATUS_RESOURCES = [
+    { key: 'cpu', label: 'CPU', value: 38.6, color: 'var(--primary)', detail: '8 核 · 平均负载 2.14' },
+    { key: 'memory', label: '内存', value: 62.4, color: 'var(--success)', detail: '19.9 GB / 32 GB' },
+    { key: 'disk', label: '磁盘', value: 71.2, color: 'var(--warning)', detail: '142 GB / 200 GB' }
+  ];
+
+  const STATUS_NETWORK = {
+    labels: ['-55m', '-50m', '-45m', '-40m', '-35m', '-30m', '-25m', '-20m', '-15m', '-10m', '-5m', 'now'],
+    inbound: [12.4, 14.1, 13.2, 16.8, 18.4, 15.2, 17.6, 21.4, 19.2, 18.6, 20.1, 19.4],
+    outbound: [8.2, 9.6, 9.1, 11.4, 12.8, 10.2, 11.9, 14.6, 13.2, 12.4, 13.8, 13.1]
+  };
+
+  /* ========================================================================
+     操作审计
+     ======================================================================== */
+  const AUDIT_TEMPLATES = [
+    {
+      action: '删除帖子', tone: 'danger', targetType: '帖子',
+      target: '《关于期末复习资料共享的说明》', detail: '删除含广告引流内容的帖子，并站内信通知作者',
+      changes: [
+        { label: '帖子状态', before: '已发布', after: '已删除', kind: 'delete' },
+        { label: '可见范围', before: '全站可见', after: '已下线', kind: 'delete' }
+      ]
+    },
+    {
+      action: '封禁用户', tone: 'danger', targetType: '用户',
+      target: '2023215077 · 秋日柠檬', detail: '因多次发布违规内容，封禁账号 30 天',
+      changes: [
+        { label: '账号状态', before: '正常', after: '封禁中', kind: 'add' },
+        { label: '封禁截止', before: '—', after: '2026-12-23 22:00', kind: 'add' }
+      ]
+    },
+    {
+      action: '修改角色权限', tone: 'warning', targetType: '角色',
+      target: '内容审核员', detail: '补充举报工单处理与评论删除权限',
+      changes: [
+        { label: '评论删除', before: '未授权', after: '已授权', kind: 'add' },
+        { label: '敏感词管理', before: '已授权', after: '未授权', kind: 'delete' }
+      ]
+    },
+    {
+      action: '导出数据', tone: 'info', targetType: '导出申请',
+      target: 'EX-20261123-006', detail: '导出近 90 天社区核心指标',
+      changes: [
+        { label: '审批状态', before: '待审批', after: '已通过', kind: 'add' },
+        { label: '导出记录', before: '—', after: '已生成 90 行 CSV', kind: 'add' }
+      ]
+    },
+    {
+      action: '发布公告', tone: 'success', targetType: '公告',
+      target: '《关于寒假期间系统维护的通知》', detail: '创建并投放全站顶部横幅公告',
+      changes: [
+        { label: '公告状态', before: '草稿', after: '投放中', kind: 'add' },
+        { label: '投放位置', before: '—', after: '顶部横幅', kind: 'add' }
+      ]
+    },
+    {
+      action: '重置密码', tone: 'warning', targetType: '管理员',
+      target: 'support.11', detail: '应本人申请重置后台登录密码',
+      changes: [
+        { label: '密码版本', before: 'v3', after: 'v4', kind: 'modify' },
+        { label: '会话状态', before: '2 个活跃会话', after: '已强制下线', kind: 'delete' }
+      ]
+    },
+    {
+      action: '审核通过', tone: 'success', targetType: '帖子',
+      target: '《计算机学院保研经验分享》', detail: '内容审核通过并设为精华',
+      changes: [
+        { label: '审核状态', before: '待审核', after: '已通过', kind: 'add' },
+        { label: '精华标记', before: '否', after: '是', kind: 'add' }
+      ]
+    },
+    {
+      action: '修改配置', tone: 'warning', targetType: '站点配置',
+      target: '安全策略 · 登录失败锁定', detail: '登录失败锁定阈值由 8 次调整为 5 次',
+      changes: [
+        { label: '失败阈值', before: '8 次', after: '5 次', kind: 'modify' },
+        { label: '锁定时长', before: '15 分钟', after: '30 分钟', kind: 'modify' }
+      ]
+    }
+  ];
+
+  const AUDIT_LOGS = [];
+  for (let i = 0; i < 36; i++) {
+    const template = AUDIT_TEMPLATES[i % AUDIT_TEMPLATES.length];
+    const admin = ADMINS[i % ADMINS.length];
+    AUDIT_LOGS.push({
+      id: 'al' + (i + 1),
+      createdAt: ago(ri(0, 20), ri(0, 23)),
+      operator: admin.name,
+      role: admin.roleName,
+      action: template.action,
+      tone: template.tone,
+      targetType: template.targetType,
+      target: template.target,
+      ip: admin.lastIp,
+      result: i % 9 === 4 ? 'failed' : 'success',
+      detail: template.detail,
+      changes: template.changes
+    });
+  }
+  AUDIT_LOGS.sort(function (a, b) { return b.createdAt - a.createdAt; });
+
+  /* ========================================================================
+     系统日志
+     ======================================================================== */
+  const SYSTEM_LOG_MODULES = ['auth', 'post', 'comment', 'upload', 'mail', 'scheduler', 'gateway', 'db'];
+
+  const SYSTEM_LOG_POOL = {
+    ERROR: [
+      ['gateway', '上游服务响应超时，重试 3 次后仍失败'],
+      ['db', '数据库连接池耗尽，等待队列已满'],
+      ['mail', 'SMTP 认证失败，请检查发件账号配置'],
+      ['upload', '对象存储上传失败，响应状态 500']
+    ],
+    WARN: [
+      ['scheduler', '定时任务执行超时，已跳过本次执行'],
+      ['gateway', '接口平均响应时间超过 200ms 阈值'],
+      ['auth', '检测到同一账号短时间多地登录'],
+      ['db', '慢查询耗时 1.82s，已记录执行计划']
+    ],
+    INFO: [
+      ['auth', '管理员登录成功'],
+      ['post', '帖子审核通过并发布'],
+      ['mail', '邮件队列发送完成'],
+      ['scheduler', '每日数据汇总任务执行完成']
+    ],
+    DEBUG: [
+      ['gateway', '请求命中缓存，返回缓存结果'],
+      ['post', '帖子列表查询耗时 12ms'],
+      ['auth', 'Token 校验通过'],
+      ['upload', '图片压缩完成，体积减少 38%']
+    ]
+  };
+
+  const SYSTEM_LOGS = [];
+  for (let i = 0; i < 56; i++) {
+    let level = 'DEBUG';
+    if (i % 13 === 0) level = 'ERROR';
+    else if (i % 7 === 0) level = 'WARN';
+    else if (i % 3 === 0) level = 'INFO';
+    const pool = SYSTEM_LOG_POOL[level];
+    const entry = pool[i % pool.length];
+    const ts = ago(ri(0, 6), ri(0, 23));
+    const payload = {
+      timestamp: new Date(ts).toISOString(),
+      level: level,
+      module: entry[0],
+      message: entry[1],
+      requestId: 'req_' + (100000 + i * 37),
+      traceId: 'trace_' + (700000 + i * 53),
+      path: entry[0] === 'auth' ? '/api/v1/auth/login' : (entry[0] === 'post' ? '/api/v1/posts' : '/api/v1/' + entry[0]),
+      method: i % 4 === 0 ? 'POST' : 'GET',
+      statusCode: level === 'ERROR' ? 500 : (level === 'WARN' ? 429 : 200),
+      latencyMs: level === 'ERROR' ? ri(1800, 5200) : ri(8, 260),
+      userId: 'u' + (1000 + i * 7),
+      ip: '10.12.' + ri(1, 30) + '.' + ri(2, 240)
+    };
+    if (level === 'ERROR') {
+      payload.stack = 'Error: ' + entry[1] + '\n    at Gateway.handle (/srv/app/src/gateway.js:148:13)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)';
+    }
+    SYSTEM_LOGS.push({
+      id: 'sl' + (i + 1),
+      ts: ts,
+      level: level,
+      module: entry[0],
+      message: entry[1],
+      payload: payload
+    });
+  }
+  SYSTEM_LOGS.sort(function (a, b) { return b.ts - a.ts; });
+
+  /* ========================================================================
+     站点配置
+     ======================================================================== */
+  const SETTINGS_SECTIONS = [
+    {
+      key: 'register', name: '注册与登录', icon: 'users', desc: '控制注册开放范围、认证要求与登录方式',
+      fields: [
+        { key: 'allowRegister', label: '开放注册', desc: '关闭后仅管理员可创建新账号', type: 'switch', value: true },
+        { key: 'registerMethod', label: '注册方式', desc: '选择用户注册时可使用的身份校验方式', type: 'select', value: 'email', options: [['email', '邮箱验证码'], ['student', '学号 + 校园网认证'], ['invite', '邀请码注册']] },
+        { key: 'verifyRequired', label: '注册需实名认证', desc: '开启后未认证用户无法发帖与评论', type: 'switch', value: true },
+        { key: 'dailyRegisterLimit', label: '单 IP 每日注册上限', desc: '超过上限的注册请求将被自动拦截', type: 'number', value: 5, min: 1, max: 50, suffix: '次' }
+      ]
+    },
+    {
+      key: 'post', name: '发帖规则', icon: 'file-text', desc: '设置发帖门槛、频率限制与内容默认策略',
+      fields: [
+        { key: 'postMinLength', label: '帖子最小字数', desc: '少于该字数的帖子不允许发布', type: 'number', value: 10, min: 1, max: 200, suffix: '字' },
+        { key: 'dailyPostLimit', label: '每日发帖上限', desc: '单个用户 24 小时内最多发布的帖子数', type: 'number', value: 20, min: 1, max: 100, suffix: '篇' },
+        { key: 'newUserReview', label: '新用户发帖需审核', desc: '注册 7 天内的用户发帖进入人工审核队列', type: 'switch', value: true },
+        { key: 'allowAnonymous', label: '允许匿名发帖', desc: '仅限「情感树洞」板块生效', type: 'switch', value: false },
+        { key: 'defaultSort', label: '默认排序方式', desc: '帖子列表的默认排序策略', type: 'select', value: 'latest', options: [['latest', '最新回复'], ['publish', '最新发布'], ['hot', '热度排序']] }
+      ]
+    },
+    {
+      key: 'media', name: '媒体上传', icon: 'image', desc: '限制附件体积、格式与存储策略',
+      fields: [
+        { key: 'maxFileSize', label: '单文件大小上限', desc: '超过上限的文件将在客户端被拒绝', type: 'number', value: 10, min: 1, max: 100, suffix: 'MB' },
+        { key: 'allowedTypes', label: '允许的文件类型', desc: '控制帖子与评论可上传的附件格式', type: 'select', value: 'image', options: [['image', '仅图片'], ['image_doc', '图片 + 文档'], ['all', '全部常见格式']] },
+        { key: 'compressImage', label: '自动压缩图片', desc: '上传后自动压缩至最长边 1920px', type: 'switch', value: true },
+        { key: 'allowVideo', label: '允许上传视频', desc: '开启后支持 mp4 格式短视频', type: 'switch', value: false },
+        { key: 'storage', label: '存储方式', desc: '媒体文件的持久化存储位置', type: 'select', value: 'oss', options: [['oss', '对象存储 OSS'], ['local', '本地磁盘'], ['cdn', 'CDN 回源存储']] }
+      ]
+    },
+    {
+      key: 'security', name: '安全策略', icon: 'shield', desc: '登录保护、会话管理与内容安全',
+      fields: [
+        { key: 'loginFailLimit', label: '登录失败锁定阈值', desc: '连续失败达到阈值后临时锁定账号', type: 'number', value: 5, min: 3, max: 20, suffix: '次' },
+        { key: 'sessionDays', label: '会话有效期', desc: '后台登录会话的最长有效天数', type: 'number', value: 7, min: 1, max: 30, suffix: '天' },
+        { key: 'force2FA', label: '强制两步验证', desc: '所有管理员登录时需完成二次验证', type: 'switch', value: false },
+        { key: 'sensitiveFilter', label: '敏感词自动过滤', desc: '命中敏感词的帖子自动进入审核队列', type: 'switch', value: true },
+        { key: 'remoteAlert', label: '异地登录提醒', desc: '检测到异常登录地点时发送邮件提醒', type: 'switch', value: true }
+      ]
+    },
+    {
+      key: 'mail', name: '邮件服务', icon: 'mail', desc: '配置发件服务、发送频率与退信处理',
+      fields: [
+        { key: 'mailProvider', label: '发件服务', desc: '选择用于发送系统邮件的服务商', type: 'select', value: 'smtp', options: [['smtp', '自建 SMTP'], ['exmail', '腾讯企业邮'], ['aliyun', '阿里云邮件推送']] },
+        { key: 'mailPort', label: 'SMTP 端口', desc: '常用 465（SSL）或 587（STARTTLS）', type: 'number', value: 465, min: 1, max: 65535, suffix: '' },
+        { key: 'mailSSL', label: '启用 SSL 加密', desc: '关闭后将使用明文连接，存在安全风险', type: 'switch', value: true },
+        { key: 'dailyMailLimit', label: '每日发送上限', desc: '超过上限的邮件将进入次日队列', type: 'number', value: 2000, min: 100, max: 10000, suffix: '封' },
+        { key: 'bounceNotice', label: '退信通知', desc: '出现硬退信时通知管理员处理', type: 'switch', value: true }
+      ]
+    }
+  ];
+
+  const SETTINGS_META = { updatedAt: ago(2, 4), operator: '张明远' };
+
+  /* ========================================================================
      对外暴露
      ======================================================================== */
   window.MOCK_NOW = NOW;
@@ -845,6 +1230,18 @@
   window.RECOMMENDATION_META = RECOMMENDATION_META;
   window.RECOMMENDATIONS = RECOMMENDATIONS;
   window.ANALYTICS = ANALYTICS;
+  window.PERMISSION_MODULES = PERMISSION_MODULES;
+  window.EXPORT_REQUESTS = EXPORT_REQUESTS;
+  window.STATUS_SERIES = STATUS_SERIES;
+  window.STATUS_KPIS = STATUS_KPIS;
+  window.STATUS_ERRORS = STATUS_ERRORS;
+  window.STATUS_RESOURCES = STATUS_RESOURCES;
+  window.STATUS_NETWORK = STATUS_NETWORK;
+  window.AUDIT_LOGS = AUDIT_LOGS;
+  window.SYSTEM_LOG_MODULES = SYSTEM_LOG_MODULES;
+  window.SYSTEM_LOGS = SYSTEM_LOGS;
+  window.SETTINGS_SECTIONS = SETTINGS_SECTIONS;
+  window.SETTINGS_META = SETTINGS_META;
 
   window.STATS = STATS;
   window.DASHBOARD = {

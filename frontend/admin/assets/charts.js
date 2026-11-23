@@ -47,7 +47,7 @@
 
   /* ========================================================================
      折线图
-     opts: { labels, series: [{ name, color, data }], height, yTicks }
+     opts: { labels, series: [{ name, color, data, axis:'right' }], height, yTicks, dualAxis }
      ======================================================================== */
   function line(target, opts) {
     const node = resolve(target);
@@ -55,9 +55,10 @@
     const options = opts || {};
     const labels = options.labels || [];
     const series = (options.series || []).filter(function (item) { return item && item.data; });
+    const dual = !!options.dualAxis;
     const width = Math.max(node.clientWidth || 720, 320);
     const height = options.height || 260;
-    const margin = { top: 16, right: 16, bottom: 28, left: 46 };
+    const margin = { top: 16, right: dual ? 54 : 16, bottom: 28, left: 46 };
     const plotW = width - margin.left - margin.right;
     const plotH = height - margin.top - margin.bottom;
 
@@ -66,15 +67,35 @@
       return '';
     }
 
-    const allValues = [];
-    series.forEach(function (item) {
-      item.data.forEach(function (value) { allValues.push(Number(value) || 0); });
-    });
-    const scale = niceScale(Math.max.apply(null, allValues), options.yTicks || 4);
+    let scale;
+    let rightScale = null;
+    if (dual) {
+      const leftValues = [];
+      const rightValues = [];
+      series.forEach(function (item) {
+        item.data.forEach(function (value) {
+          (item.axis === 'right' ? rightValues : leftValues).push(Number(value) || 0);
+        });
+      });
+      scale = niceScale(Math.max(1, Math.max.apply(null, leftValues)), options.yTicks || 4);
+      if (rightValues.length) {
+        rightScale = niceScale(Math.max(1, Math.max.apply(null, rightValues)), options.yTicks || 4);
+      }
+    } else {
+      const allValues = [];
+      series.forEach(function (item) {
+        item.data.forEach(function (value) { allValues.push(Number(value) || 0); });
+      });
+      scale = niceScale(Math.max.apply(null, allValues), options.yTicks || 4);
+    }
     const count = labels.length;
     const stepX = count > 1 ? plotW / (count - 1) : 0;
     const xAt = function (index) { return margin.left + index * stepX; };
     const yAt = function (value) { return margin.top + plotH - (value / scale.max) * plotH; };
+    const yAtRight = function (value) {
+      const max = rightScale ? rightScale.max : scale.max;
+      return margin.top + plotH - (value / max) * plotH;
+    };
 
     const clipId = 'line-clip-' + Math.random().toString(36).slice(2, 8);
     let svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" width="100%" role="img" aria-label="折线图">';
@@ -89,6 +110,10 @@
         '" stroke="var(--divider)" stroke-width="1"/>';
       svg += '<text x="' + (margin.left - 8) + '" y="' + (y + 4) + '" text-anchor="end" font-size="11" fill="var(--text-3)">' +
         compact(Math.round(value)) + '</text>';
+      if (rightScale) {
+        svg += '<text x="' + (width - margin.right + 8) + '" y="' + (y + 4) + '" text-anchor="start" font-size="11" fill="var(--text-3)">' +
+          compact(Math.round((rightScale.max / tickCount) * i)) + '</text>';
+      }
     }
 
     /* X 轴标签 */
@@ -102,8 +127,9 @@
 
     series.forEach(function (item) {
       const color = colorOf(item.color);
+      const valueToY = (dual && item.axis === 'right') ? yAtRight : yAt;
       const points = item.data.map(function (value, index) {
-        return [xAt(index), yAt(Number(value) || 0)];
+        return [xAt(index), valueToY(Number(value) || 0)];
       });
       if (!points.length) return;
 

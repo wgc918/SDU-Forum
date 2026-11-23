@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>站点配置 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="settings">
+    <!--
+      ======================================================================
+      页面：站点配置
+      ----------------------------------------------------------------------
+      数据字段：
+        SETTINGS_SECTIONS key / name / icon / desc /
+          fields[{ key, label, desc, type(switch|number|select), value, options, min, max, suffix }]
+        SETTINGS_META     updatedAt / operator
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET /api/admin/settings
+        PUT /api/admin/settings { sections: [{ key, fields: [{ key, value }] }] }
+        POST /api/admin/settings/reset
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">站点配置</h1>
+        <p class="page-desc">维护注册登录、发帖规则、媒体上传、安全策略与邮件服务配置</p>
+      </div>
+    </div>
+
+    <div class="settings-layout">
+      <nav class="settings-nav" id="settings-nav" aria-label="配置分组"></nav>
+      <div class="settings-main" id="settings-main"></div>
+    </div>
+
+    <div class="settings-bar">
+      <div class="settings-bar-meta" id="settings-meta"></div>
+      <div class="settings-bar-actions">
+        <button type="button" class="btn btn-secondary" id="settings-reset-btn">恢复默认</button>
+        <button type="button" class="btn btn-primary" id="settings-save-btn">保存修改</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('settings');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const SECTIONS = window.SETTINGS_SECTIONS;
+      const META = window.SETTINGS_META;
+
+      const defaults = JSON.parse(JSON.stringify(SECTIONS));
+      const fieldMap = {};
+
+      SECTIONS.forEach(function (section) {
+        section.fields.forEach(function (field) { fieldMap[field.key] = field; });
+      });
+
+      /* ---------------------------------------------------------------
+         左侧锚点导航
+         --------------------------------------------------------------- */
+      function renderNav() {
+        $('#settings-nav').innerHTML = '<div class="settings-nav-title">配置分组</div>' +
+          SECTIONS.map(function (section, index) {
+            return '<button type="button" class="' + (index === 0 ? 'active' : '') + '" data-target="settings-' + section.key + '">' +
+              App.icon(section.icon, 16) + '<span>' + esc(section.name) + '</span></button>';
+          }).join('');
+      }
+
+      /* ---------------------------------------------------------------
+         配置表单
+         --------------------------------------------------------------- */
+      function controlHTML(field) {
+        if (field.type === 'switch') {
+          return '<label class="switch"><input type="checkbox" data-key="' + field.key + '"' +
+            (field.value ? ' checked' : '') + ' aria-label="' + esc(field.label) + '"><span class="switch-track"></span></label>';
+        }
+        if (field.type === 'number') {
+          return '<div class="flex items-center">' +
+            '<input class="control setting-number" type="number" data-key="' + field.key + '" value="' + field.value + '"' +
+            (field.min != null ? ' min="' + field.min + '"' : '') + (field.max != null ? ' max="' + field.max + '"' : '') + '>' +
+            (field.suffix ? '<span class="setting-suffix">' + esc(field.suffix) + '</span>' : '') + '</div>';
+        }
+        return '<select class="select setting-select" data-key="' + field.key + '">' +
+          field.options.map(function (option) {
+            return '<option value="' + esc(option[0]) + '"' + (option[0] === field.value ? ' selected' : '') + '>' + esc(option[1]) + '</option>';
+          }).join('') + '</select>';
+      }
+
+      function renderForm() {
+        $('#settings-main').innerHTML = SECTIONS.map(function (section) {
+          return '<section class="card settings-card" id="settings-' + section.key + '">' +
+            '<div class="card-head"><div><div class="card-title">' + esc(section.name) + '</div>' +
+            '<div class="card-sub">' + esc(section.desc) + '</div></div></div>' +
+            '<div class="settings-list">' + section.fields.map(function (field) {
+              return '<div class="setting-row">' +
+                '<div class="setting-info"><div class="setting-label">' + esc(field.label) + '</div>' +
+                '<div class="setting-desc">' + esc(field.desc) + '</div></div>' +
+                '<div class="setting-control">' + controlHTML(field) + '</div>' +
+                '</div>';
+            }).join('') + '</div></section>';
+          }).join('');
+      }
+
+      /* ---------------------------------------------------------------
+         最后修改信息
+         --------------------------------------------------------------- */
+      function renderMeta(updatedAt, operator) {
+        $('#settings-meta').innerHTML = '最后修改：<b>' + App.fmtDateTime(updatedAt) + '</b> · 操作人 <b>' + esc(operator) + '</b>';
+      }
+
+      /* ---------------------------------------------------------------
+         保存 / 恢复默认
+         --------------------------------------------------------------- */
+      function saveSettings() {
+        const errors = [];
+
+        SECTIONS.forEach(function (section) {
+          section.fields.forEach(function (field) {
+            const input = $('[data-key="' + field.key + '"]');
+            if (!input) return;
+            if (field.type === 'switch') {
+              field.value = input.checked;
+            } else if (field.type === 'number') {
+              const value = Number(input.value);
+              if (!input.value || Number.isNaN(value)) {
+                errors.push('「' + field.label + '」不能为空');
+                return;
+              }
+              if ((field.min != null && value < field.min) || (field.max != null && value > field.max)) {
+                errors.push('「' + field.label + '」需在 ' + field.min + ' - ' + field.max + ' 之间');
+                return;
+              }
+              field.value = value;
+            } else {
+              field.value = input.value;
+            }
+          });
+        });
+
+        if (errors.length) {
+          App.toast(errors[0], 'warning');
+          return;
+        }
+
+        META.updatedAt = Date.now();
+        META.operator = '张明远';
+        renderMeta(META.updatedAt, META.operator);
+        App.toast('站点配置已保存并生效', 'success');
+      }
+
+      function restoreDefaults() {
+        SECTIONS.forEach(function (section, sectionIndex) {
+          section.fields.forEach(function (field, fieldIndex) {
+            field.value = defaults[sectionIndex].fields[fieldIndex].value;
+            const input = $('[data-key="' + field.key + '"]');
+            if (!input) return;
+            if (field.type === 'switch') input.checked = field.value;
+            else input.value = field.value;
+          });
+        });
+        App.toast('已恢复为系统默认配置，点击「保存修改」后生效', 'info');
+      }
+
+      /* ---------------------------------------------------------------
+         滚动定位
+         --------------------------------------------------------------- */
+      function setActiveNav(key) {
+        $$('#settings-nav button').forEach(function (button) {
+          button.classList.toggle('active', button.getAttribute('data-target') === key);
+        });
+      }
+
+      function updateActiveOnScroll() {
+        const sections = $$('.settings-card');
+        let current = sections[0] ? sections[0].id : '';
+        sections.forEach(function (section) {
+          if (section.getBoundingClientRect().top <= 120) current = section.id;
+        });
+        if (current) setActiveNav(current);
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#settings-nav').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-target]');
+        if (!button) return;
+        const target = document.getElementById(button.getAttribute('data-target'));
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setActiveNav(button.getAttribute('data-target'));
+      });
+
+      $('#settings-save-btn').addEventListener('click', saveSettings);
+      $('#settings-reset-btn').addEventListener('click', restoreDefaults);
+      window.addEventListener('scroll', App.debounce(updateActiveOnScroll, 120), { passive: true });
+
+      /* ---------------------------------------------------------------
+         初始化
+         --------------------------------------------------------------- */
+      renderNav();
+      renderForm();
+      renderMeta(META.updatedAt, META.operator);
+    })();
+  </script>
+</body>
+</html>

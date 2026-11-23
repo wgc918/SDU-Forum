@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据导出审批 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="export-approval">
+    <!--
+      ======================================================================
+      页面：数据导出审批
+      ----------------------------------------------------------------------
+      数据字段（EXPORT_REQUESTS）：
+        id / applicant / account / dataType / scope / volume / requestedAt /
+        status(pending|approved|rejected) / approver / reviewedAt / reason / reviewNote
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET   /api/admin/export-requests?status=pending
+        PATCH /api/admin/export-requests/{id} { status, reviewNote }
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">数据导出审批</h1>
+        <p class="page-desc">审核后台数据导出申请，控制敏感数据的流转范围</p>
+      </div>
+    </div>
+
+    <div class="card export-card">
+      <div class="tabs" id="export-tabs" role="tablist">
+        <button type="button" class="tab active" data-status="pending" role="tab">待审批<span class="tabs-count" data-count="pending">0</span></button>
+        <button type="button" class="tab" data-status="approved" role="tab">已通过<span class="tabs-count" data-count="approved">0</span></button>
+        <button type="button" class="tab" data-status="rejected" role="tab">已驳回<span class="tabs-count" data-count="rejected">0</span></button>
+      </div>
+
+      <div class="table-wrap" id="export-table"></div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('export-approval');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const REQUESTS = window.EXPORT_REQUESTS;
+
+      const STATUS_META = {
+        pending: { label: '待审批', tone: 'warning' },
+        approved: { label: '已通过', tone: 'success' },
+        rejected: { label: '已驳回', tone: 'danger' }
+      };
+
+      const TYPE_TONES = {
+        '用户数据': 'info',
+        '审计日志': 'danger',
+        '举报记录': 'warning',
+        '帖子内容': 'neutral',
+        '统计数据': 'success'
+      };
+
+      const state = { status: 'pending', expanded: {} };
+
+      function renderTabs() {
+        ['pending', 'approved', 'rejected'].forEach(function (status) {
+          const count = REQUESTS.filter(function (item) { return item.status === status; }).length;
+          const badge = $('.tabs-count[data-count="' + status + '"]');
+          if (badge) badge.textContent = count;
+        });
+        $$('#export-tabs .tab').forEach(function (tab) {
+          tab.classList.toggle('active', tab.getAttribute('data-status') === state.status);
+        });
+      }
+
+      function rowHTML(item) {
+        const statusMeta = STATUS_META[item.status];
+        const expanded = !!state.expanded[item.id];
+        const main = '<tr class="export-row" data-id="' + item.id + '">' +
+          '<td><div class="table-user">' + App.avatarHTML(item.applicant, item.id, 30) +
+          '<div style="min-width:0"><div class="cell-main">' + esc(item.applicant) + '</div>' +
+          '<div class="cell-sub">' + esc(item.account) + '</div></div>' +
+          '<span style="margin-left:4px;color:var(--text-3);transform:rotate(' + (expanded ? '90deg' : '0deg') + ');transition:transform .15s ease;display:inline-flex">' + App.icon('chevron-right', 13) + '</span>' +
+          '</div></td>' +
+          '<td>' + App.pill(item.dataType, TYPE_TONES[item.dataType] || 'neutral') + '</td>' +
+          '<td><div class="export-scope" title="' + esc(item.scope) + '">' + esc(item.scope) + '</div></td>' +
+          '<td style="text-align:right"><span class="mono">' + App.fmtNum(item.volume) + '</span> <span class="text-sm muted">行</span></td>' +
+          '<td><div class="cell-main" style="font-weight:400">' + App.fmtDate(item.requestedAt, 'YYYY-MM-DD') + '</div>' +
+          '<div class="cell-sub">' + App.fmtDate(item.requestedAt, 'HH:mm') + '</div></td>' +
+          '<td>' + (item.approver ? esc(item.approver) : '<span class="muted">—</span>') + '</td>' +
+          '<td>' + App.pill(statusMeta.label, statusMeta.tone) + '</td>' +
+          '<td class="col-actions">' +
+          (item.status === 'pending'
+            ? '<button type="button" class="btn btn-primary btn-sm" data-action="review" data-id="' + item.id + '">审批</button>'
+            : '<button type="button" class="btn btn-secondary btn-sm" data-action="review" data-id="' + item.id + '">查看</button>') +
+          '</td></tr>';
+
+        const expand = expanded
+          ? '<tr class="export-expand"><td colspan="8"><div class="export-reason"><b>申请理由：</b>' + esc(item.reason) + '</div></td></tr>'
+          : '';
+
+        return main + expand;
+      }
+
+      function renderTable() {
+        renderTabs();
+        const rows = REQUESTS.filter(function (item) { return item.status === state.status; })
+          .sort(function (a, b) { return b.requestedAt - a.requestedAt; });
+
+        if (!rows.length) {
+          $('#export-table').innerHTML = '<div style="padding:24px">' +
+            App.emptyHTML('暂无' + STATUS_META[state.status].label + '的申请', '新的导出申请会出现在这里', 'download') + '</div>';
+          return;
+        }
+
+        $('#export-table').innerHTML = '<table class="data-table">' +
+          '<thead><tr><th>申请人</th><th style="width:104px">数据类型</th><th>导出范围</th>' +
+          '<th style="width:96px;text-align:right">数据量</th><th style="width:118px">申请时间</th>' +
+          '<th style="width:88px">审批人</th><th style="width:92px">状态</th><th class="col-actions" style="width:88px">操作</th></tr></thead>' +
+          '<tbody>' + rows.map(rowHTML).join('') + '</tbody></table>';
+      }
+
+      /* ---------------------------------------------------------------
+         审批抽屉
+         --------------------------------------------------------------- */
+      function openReview(item) {
+        const statusMeta = STATUS_META[item.status];
+        const pending = item.status === 'pending';
+
+        const body = '<div class="form-stack">' +
+          '<div class="info-grid">' +
+          '<div class="info-item"><div class="info-label">申请人</div><div class="info-value">' + esc(item.applicant) + ' · ' + esc(item.account) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">数据类型</div><div class="info-value">' + App.pill(item.dataType, TYPE_TONES[item.dataType] || 'neutral') + '</div></div>' +
+          '<div class="info-item"><div class="info-label">数据量</div><div class="info-value">' + App.fmtNum(item.volume) + ' 行</div></div>' +
+          '<div class="info-item"><div class="info-label">申请时间</div><div class="info-value">' + App.fmtDateTime(item.requestedAt) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">当前状态</div><div class="info-value">' + App.pill(statusMeta.label, statusMeta.tone) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">审批人</div><div class="info-value">' + (item.approver ? esc(item.approver) : '—') + '</div></div>' +
+          '</div>' +
+          '<div class="drawer-section"><div class="drawer-section-title">导出范围</div>' +
+          '<div class="detail-text">' + esc(item.scope) + '</div></div>' +
+          '<div class="drawer-section"><div class="drawer-section-title">申请理由</div>' +
+          '<div class="detail-text">' + esc(item.reason) + '</div></div>' +
+          (pending
+            ? '<div class="drawer-section"><div class="drawer-section-title">审批意见</div>' +
+              '<textarea class="control" id="export-note" rows="3" placeholder="填写审批意见，驳回时必填"></textarea>' +
+              '<span class="help-text">审批结果会通过站内信通知申请人</span></div>'
+            : '<div class="drawer-section"><div class="drawer-section-title">审批结果</div>' +
+              '<div class="detail-text">' + esc(item.reviewNote || '无备注') + '<div class="text-sm muted" style="margin-top:6px">' +
+              (item.reviewedAt ? App.fmtDateTime(item.reviewedAt) : '') + '</div></div></div>') +
+          '</div>';
+
+        const footer = App.el('div', { class: 'flex gap-2', style: 'justify-content:flex-end;width:100%' });
+        let drawer = null;
+
+        if (pending) {
+          const rejectBtn = App.el('button', { type: 'button', class: 'btn btn-danger', text: '驳回申请' });
+          const approveBtn = App.el('button', { type: 'button', class: 'btn btn-primary', text: '通过审批' });
+          footer.appendChild(rejectBtn);
+          footer.appendChild(approveBtn);
+
+          rejectBtn.addEventListener('click', function () {
+            const note = $('#export-note').value.trim();
+            if (!note) {
+              App.toast('驳回申请需要填写审批理由', 'warning');
+              $('#export-note').focus();
+              return;
+            }
+            item.status = 'rejected';
+            item.approver = '张明远';
+            item.reviewedAt = Date.now();
+            item.reviewNote = note;
+            App.toast('已驳回「' + item.applicant + '」的导出申请', 'success');
+            drawer.close();
+            renderTable();
+          });
+
+          approveBtn.addEventListener('click', function () {
+            item.status = 'approved';
+            item.approver = '张明远';
+            item.reviewedAt = Date.now();
+            item.reviewNote = $('#export-note').value.trim() || '审批通过，同意导出。';
+            App.toast('已通过「' + item.applicant + '」的导出申请', 'success');
+            drawer.close();
+            renderTable();
+          });
+        } else {
+          const closeBtn = App.el('button', { type: 'button', class: 'btn btn-secondary', text: '关闭' });
+          footer.appendChild(closeBtn);
+          closeBtn.addEventListener('click', function () { drawer.close(); });
+        }
+
+        drawer = App.drawer({
+          title: '导出申请详情',
+          subtitle: item.id.toUpperCase() + ' · ' + item.dataType,
+          body: body,
+          footer: footer,
+          width: 620
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#export-tabs').addEventListener('click', function (event) {
+        const tab = event.target.closest('.tab[data-status]');
+        if (!tab) return;
+        state.status = tab.getAttribute('data-status');
+        state.expanded = {};
+        renderTable();
+      });
+
+      $('#export-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action="review"]');
+        if (button) {
+          event.stopPropagation();
+          const item = REQUESTS.find(function (request) { return request.id === button.getAttribute('data-id'); });
+          if (item) openReview(item);
+          return;
+        }
+
+        const row = event.target.closest('.export-row');
+        if (!row) return;
+        const id = row.getAttribute('data-id');
+        if (state.expanded[id]) delete state.expanded[id];
+        else state.expanded[id] = true;
+        renderTable();
+      });
+
+      renderTable();
+    })();
+  </script>
+</body>
+</html>
