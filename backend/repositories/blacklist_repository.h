@@ -92,9 +92,7 @@ public:
     /// 条件查询（分页），按 banned_at DESC
     std::vector<BlacklistEntry> search(const BlacklistFilter& filter, int page, int page_size);
 
-    /// 用户当前状态 ban_type 仅在all时有效
-    std::optional<BanState> get_user_status(uint64_t account_id);
-
+    
 private:
     IDbConnectionProvider& m_db_provider;
     std::string            m_blacklist_table;
