@@ -5,6 +5,8 @@
 #include <optional>
 #include <string>
 
+#include "errors.h"
+
 namespace ban
 {
 
@@ -75,6 +77,7 @@ enum class BanSource : uint8_t
     Report = 2,  // 举报触发
 };
 
+/// @throws common::AppException 参数非法
 inline std::string ban_source_to_string(BanSource source)
 {
     switch (source)
@@ -86,10 +89,11 @@ inline std::string ban_source_to_string(BanSource source)
         case ban::BanSource::Report:
             return "report";
         default:
-            return "unknown";
+            throw common::AppException(common::ErrorCode::InvalidParam, "invalid ban source");
     }
 }
 
+/// @throws common::AppException 参数非法
 inline ban::BanSource string_to_ban_source(const std::string& source)
 {
     if (source == "manual")
@@ -99,10 +103,8 @@ inline ban::BanSource string_to_ban_source(const std::string& source)
     if (source == "report")
         return ban::BanSource::Report;
 
-    return ban::BanSource::Manual;
+    throw common::AppException(common::ErrorCode::InvalidParam, "invalid ban source");
 }
-
-
 
 /// 封禁状态（对应表 status）
 enum class BanStatus : uint8_t
@@ -113,12 +115,10 @@ enum class BanStatus : uint8_t
 };
 
 /// 封禁状态对外文案
-inline const char* ban_status_name(std::optional<ban::BanStatus> status)
+/// @throws common::AppException 参数非法
+inline std::string ban_status_to_string(BanStatus status)
 {
-    if (!status)
-        return "none";
-
-    switch (*status)
+    switch (status)
     {
         case ban::BanStatus::Active:
             return "active";
@@ -127,7 +127,20 @@ inline const char* ban_status_name(std::optional<ban::BanStatus> status)
         case ban::BanStatus::Revoked:
             return "revoked";
     }
-    return "none";
+    throw common::AppException(common::ErrorCode::InvalidParam, "invalid ban status");
+}
+
+/// @throws common::AppException 参数非法
+inline ban::BanStatus string_to_ban_status(const std::string& status)
+{
+    if (status == "active")
+        return ban::BanStatus::Active;
+    if (status == "expired")
+        return ban::BanStatus::Expired;
+    if (status == "revoked")
+        return ban::BanStatus::Revoked;
+
+    throw common::AppException(common::ErrorCode::InvalidParam, "invalid ban status");
 }
 
 // ============================================================
@@ -216,17 +229,23 @@ inline std::optional<BanTypeMeta> FindBanTypeMeta(BanType type)
     return std::nullopt;
 }
 
-/// 取对外展示文案（中文兜底）；非法码返回空
+/// 取对外展示文案（中文兜底）
+/// @throws common::AppException 参数非法
 inline std::string ReasonDisplayText(ReasonCode code)
 {
     auto m = FindReasonMeta(code);
-    return m ? m->default_text : std::string{};
+    if (!m)
+        throw common::AppException(common::ErrorCode::InvalidParam, "invalid ban reason code");
+    return m->default_text;
 }
 
+/// @throws common::AppException 参数非法
 inline std::string BanTypeDisplayText(BanType type)
 {
     auto m = FindBanTypeMeta(type);
-    return m ? m->default_text : std::string{};
+    if (!m)
+        throw common::AppException(common::ErrorCode::InvalidParam, "invalid ban type");
+    return m->default_text;
 }
 
 // ============================================================
