@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>封禁管理 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="bans">
+    <!--
+      ======================================================================
+      页面：封禁管理
+      ----------------------------------------------------------------------
+      数据字段（BANS）：
+        id / userId / userName / studentId / type(login|post|comment|all) /
+        reason / detail / operator / startAt / endAt / duration / status(active|expired|revoked) /
+        evidence / createdAt
+      关联数据：USERS（用户搜索与账号状态）、ADMINS（操作人）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/bans?page=1&pageSize=10&from=&to=&status=
+        POST   /api/admin/bans            { userId, durationDays, reason, detail }
+        POST   /api/admin/bans/{id}/revoke
+        GET    /api/admin/bans/stats?from=&to=
+        GET    /api/admin/bans/export
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">封禁管理</h1>
+        <p class="page-desc">管理账号封禁记录，查看封禁原因分布与有效期结构</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="export-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+          </svg>
+          导出记录
+        </button>
+        <button type="button" class="btn btn-danger" id="ban-user-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>
+          </svg>
+          封禁用户
+        </button>
+      </div>
+    </div>
+
+    <div class="kpi-grid" id="ban-kpis"></div>
+
+    <div class="card filter-card">
+      <div class="filter-field">
+        <label class="filter-label">封禁开始日期</label>
+        <div class="date-range">
+          <input class="control" id="ban-date-from" type="date" aria-label="开始日期">
+          <span class="sep">至</span>
+          <input class="control" id="ban-date-to" type="date" aria-label="结束日期">
+        </div>
+      </div>
+      <div class="filter-field" style="min-width:auto">
+        <label class="filter-label">记录状态</label>
+        <div class="segmented" id="ban-status-seg" role="group" aria-label="记录状态">
+          <button type="button" class="active" data-status="">全部</button>
+          <button type="button" data-status="active">封禁中</button>
+          <button type="button" data-status="expired">已到期</button>
+          <button type="button" data-status="revoked">已撤销</button>
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-secondary" id="reset-btn">重置</button>
+      </div>
+    </div>
+
+    <div class="mod-layout">
+      <div class="card table-card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">封禁记录</div>
+            <div class="card-sub" id="ban-count">共 0 条</div>
+          </div>
+        </div>
+        <div id="ban-table"></div>
+        <div id="ban-pagination" style="padding:0 20px 16px"></div>
+      </div>
+
+      <div class="mod-side">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title">封禁原因分布</div>
+              <div class="card-sub">按当前筛选结果统计</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="mod-bars" id="ban-reason-chart"></div>
+            <div class="mod-summary" id="ban-reason-summary"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title">有效期结构</div>
+              <div class="card-sub">有限期封禁与永久封禁占比</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="mod-chart" id="ban-type-chart"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script src="assets/charts.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('bans');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const BANS = window.BANS;
+      const USERS = window.USERS;
+
+      const STATUS_META = {
+        active: { label: '封禁中', tone: 'danger' },
+        expired: { label: '已到期', tone: 'neutral' },
+        revoked: { label: '已撤销', tone: 'info' }
+      };
+
+      const REASON_OPTIONS = [
+        '发布广告引流内容', '恶意辱骂他人', '多次发布不实信息', '刷屏灌水',
+        '账号存在被盗风险', '侵犯他人隐私', '发布违规交易信息', '恶意举报骚扰用户'
+      ];
+
+      const COMMON_REASONS = ['发布广告引流内容', '恶意辱骂他人', '多次发布不实信息', '刷屏灌水', '侵犯他人隐私'];
+
+      const state = {
+        from: '',
+        to: '',
+        status: '',
+        page: 1,
+        pageSize: 10
+      };
+
+      let currentDrawer = null;
+
+      function statusMeta(record) {
+        return STATUS_META[record.status] || STATUS_META.active;
+      }
+
+      function reasonTone(reason) {
+        if (/广告|辱骂|隐私|交易/.test(reason)) return 'danger';
+        if (/不实|刷屏/.test(reason)) return 'warning';
+        if (/被盗/.test(reason)) return 'info';
+        return 'neutral';
+      }
+
+      function getFiltered() {
+        const from = state.from ? new Date(state.from + 'T00:00:00').getTime() : null;
+        const to = state.to ? new Date(state.to + 'T23:59:59').getTime() : null;
+        return BANS.filter(function (record) {
+          if (state.status && record.status !== state.status) return false;
+          if (from && record.startAt < from) return false;
+          if (to && record.startAt > to) return false;
+          return true;
+        }).sort(function (a, b) { return b.startAt - a.startAt; });
+      }
+
+      function findUser(record) {
+        return USERS.find(function (user) { return user.id === record.userId; });
+      }
+
+      /* ---------------------------------------------------------------
+         KPI
+         --------------------------------------------------------------- */
+      function renderKpis() {
+        const now = Date.now();
+        const active = BANS.filter(function (record) { return record.status === 'active'; }).length;
+        const month = BANS.filter(function (record) { return record.startAt >= now - 30 * 86400000; }).length;
+        const expired = BANS.filter(function (record) { return record.status === 'expired'; }).length;
+        const permanent = BANS.filter(function (record) { return record.duration === '永久'; }).length;
+        const expiringSoon = BANS.filter(function (record) {
+          return record.status === 'active' && record.endAt && record.endAt - now <= 7 * 86400000;
+        }).length;
+
+        $('#ban-kpis').innerHTML =
+          kpiCard({
+            label: '当前封禁中', value: active, icon: 'ban',
+            tone: { bg: 'var(--danger-soft)', fg: 'var(--danger)' },
+            foot: '近 7 日到期 <b>' + expiringSoon + '</b> 条'
+          }) +
+          kpiCard({
+            label: '本月新增', value: month, icon: 'calendar',
+            foot: '统计近 30 天发起的封禁'
+          }) +
+          kpiCard({
+            label: '自动解封', value: expired, icon: 'check-circle',
+            tone: { bg: 'var(--success-soft)', fg: 'var(--success-text)' },
+            foot: '到期后系统自动恢复账号'
+          }) +
+          kpiCard({
+            label: '永久封禁', value: permanent, icon: 'lock',
+            tone: { bg: 'var(--warning-soft)', fg: 'var(--warning-text)' },
+            foot: '累计记录，需人工解除'
+          });
+      }
+
+      function kpiCard(opts) {
+        return '<div class="card kpi-card">' +
+          '<div class="kpi-top"><div class="kpi-label">' + esc(opts.label) + '</div>' +
+          '<div class="kpi-icon"' + (opts.tone ? ' style="background:' + opts.tone.bg + ';color:' + opts.tone.fg + '"' : '') + '>' +
+          App.icon(opts.icon, 18) + '</div></div>' +
+          '<div class="kpi-value">' + App.fmtNum(opts.value) + '</div>' +
+          '<div class="kpi-foot">' + opts.foot + '</div></div>';
+      }
+
+      /* ---------------------------------------------------------------
+         表格
+         --------------------------------------------------------------- */
+      function renderTable() {
+        const rows = getFiltered();
+        const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const pageRows = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+
+        $('#ban-count').textContent = '共 ' + App.fmtNum(rows.length) + ' 条' +
+          (rows.length !== BANS.length ? '（全部 ' + BANS.length + ' 条）' : '');
+
+        App.renderTable('#ban-table', [
+          {
+            title: '学号昵称', width: '180px',
+            cell: function (record) {
+              return '<div class="table-user">' + App.avatarHTML(record.userName, record.userId, 32) +
+                '<div style="min-width:0"><div class="cell-main">' + esc(record.userName) + '</div>' +
+                '<div class="cell-sub">' + esc(record.studentId) + '</div></div></div>';
+            }
+          },
+          {
+            title: '封禁开始', width: '115px',
+            cell: function (record) {
+              return '<div class="cell-main" style="font-weight:400">' + App.fmtDate(record.startAt, 'YYYY-MM-DD') + '</div>' +
+                '<div class="cell-sub">' + App.fmtDate(record.startAt, 'HH:mm') + '</div>';
+            }
+          },
+          {
+            title: '封禁结束', width: '115px',
+            cell: function (record) {
+              return record.endAt
+                ? '<div class="cell-main" style="font-weight:400">' + App.fmtDate(record.endAt, 'YYYY-MM-DD') + '</div>' +
+                  '<div class="cell-sub">' + App.fmtDate(record.endAt, 'HH:mm') + '</div>'
+                : '<span class="pill pill-warning">永久</span>';
+            }
+          },
+          {
+            title: '封禁原因', width: '150px',
+            cell: function (record) {
+              return App.pill(record.reason, reasonTone(record.reason), true);
+            }
+          },
+          {
+            title: '状态', width: '80px',
+            cell: function (record) {
+              const meta = statusMeta(record);
+              return App.pill(meta.label, meta.tone, record.status === 'active');
+            }
+          },
+          {
+            title: '操作', align: 'right', width: '88px',
+            cell: function (record) {
+              const revoke = record.status === 'active'
+                ? '<button type="button" class="btn btn-secondary btn-sm" data-action="revoke" data-id="' + record.id + '">解除</button>'
+                : '';
+              return '<div class="table-actions">' +
+                '<button type="button" class="icon-btn" data-action="view" data-id="' + record.id + '" title="查看详情" aria-label="查看详情">' + App.icon('eye', 16) + '</button>' +
+                revoke + '</div>';
+            }
+          }
+        ], pageRows, {
+          emptyText: '没有匹配的封禁记录',
+          emptyDesc: '请调整日期范围或状态筛选后重试',
+          emptyIcon: 'ban',
+          onRowClick: openDetail
+        });
+
+        App.renderPagination('#ban-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: rows.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderTable();
+            renderCharts();
+          }
+        });
+
+        renderCharts();
+      }
+
+      /* ---------------------------------------------------------------
+         右侧图表
+         --------------------------------------------------------------- */
+      function renderCharts() {
+        const rows = getFiltered();
+
+        const counts = {};
+        rows.forEach(function (record) {
+          counts[record.reason] = (counts[record.reason] || 0) + 1;
+        });
+        const reasons = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
+        const top = reasons.slice(0, 6);
+        const max = Math.max.apply(null, top.map(function (reason) { return counts[reason]; }).concat([1]));
+        const topSum = top.reduce(function (sum, reason) { return sum + counts[reason]; }, 0);
+
+        $('#ban-reason-chart').innerHTML = top.length
+          ? top.map(function (reason, index) {
+              return '<div id="ban-reason-bar-' + index + '"></div>';
+            }).join('')
+          : App.emptyHTML('暂无分布数据', '调整筛选条件后查看封禁原因', 'chart');
+
+        top.forEach(function (reason, index) {
+          window.Charts.progress('#ban-reason-bar-' + index, {
+            label: reason,
+            value: counts[reason],
+            max: max,
+            color: index === 0 ? 'var(--danger)' : 'var(--primary)',
+            suffix: ' 条'
+          });
+        });
+
+        $('#ban-reason-summary').innerHTML = top.length
+          ? '<span>TOP 原因占比</span><span><b>' + Math.round(topSum / Math.max(rows.length, 1) * 100) + '%</b> · 样本 ' + App.fmtNum(rows.length) + ' 条</span>'
+          : '<span>当前筛选无数据</span><span>—</span>';
+
+        const permanent = rows.filter(function (record) { return record.duration === '永久'; }).length;
+        const limited = rows.length - permanent;
+        window.Charts.donut('#ban-type-chart', {
+          segments: [
+            { label: '有限期', value: limited, color: 'var(--primary)' },
+            { label: '永久封禁', value: permanent, color: 'var(--warning)' }
+          ],
+          centerValue: App.fmtNum(rows.length),
+          centerLabel: '封禁记录',
+          legend: true,
+          size: 180,
+          thickness: 18
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         封禁弹窗
+         --------------------------------------------------------------- */
+      function durationOptionHTML(value, label, sub, checked) {
+        return '<label class="option-pill' + (checked ? ' active' : '') + '">' +
+          '<input type="radio" name="ban-duration" value="' + value + '"' + (checked ? ' checked' : '') + '>' +
+          '<span>' + label + '</span><span class="sub">' + sub + '</span></label>';
+      }
+
+      function banModalBody() {
+        return '<div class="form-stack">' +
+          '<div class="field"><label class="label" for="ban-user-input">学号 / 昵称</label>' +
+          '<div class="suggest-wrap">' +
+          '<input class="control" id="ban-user-input" type="text" placeholder="输入学号或昵称搜索用户" autocomplete="off">' +
+          '<div class="suggest-panel" id="ban-suggest" hidden></div>' +
+          '</div>' +
+          '<div class="selected-user" id="ban-selected" hidden></div>' +
+          '<span class="help-text">仅支持对已注册账号执行封禁，输入学号可快速定位</span></div>' +
+
+          '<div class="field"><label class="label">封禁时长</label>' +
+          '<div class="option-row" id="ban-duration-row">' +
+          durationOptionHTML('7', '7 天', '短期', false) +
+          durationOptionHTML('30', '30 天', '常规', true) +
+          durationOptionHTML('90', '90 天', '长期', false) +
+          durationOptionHTML('0', '永久', '不自动解封', false) +
+          durationOptionHTML('custom', '自定义', '按天填写', false) +
+          '</div>' +
+          '<div class="custom-duration" id="ban-custom" hidden>' +
+          '<input class="control" id="ban-custom-days" type="number" min="1" max="3650" value="14" aria-label="自定义天数">' +
+          '<span class="help-text">天</span></div></div>' +
+
+          '<div class="field"><label class="label" for="ban-reason">封禁原因</label>' +
+          '<select class="select" id="ban-reason">' + REASON_OPTIONS.map(function (reason) {
+            return '<option value="' + esc(reason) + '">' + esc(reason) + '</option>';
+          }).join('') + '</select>' +
+          '<div class="reason-chips" id="ban-reason-chips">' + COMMON_REASONS.map(function (reason) {
+            return '<button type="button" class="reason-chip" data-reason="' + esc(reason) + '">' + esc(reason) + '</button>';
+          }).join('') + '</div></div>' +
+
+          '<div class="field"><label class="label" for="ban-note">备注说明</label>' +
+          '<textarea class="control" id="ban-note" rows="3" placeholder="填写处理依据、证据编号或补充说明（选填）"></textarea></div>' +
+
+          '<div class="help-text">封禁操作会立即限制账号登录，并同步写入操作日志。</div>' +
+          '</div>';
+      }
+
+      function openBanModal() {
+        let selectedUser = null;
+
+        App.modal({
+          title: '封禁用户',
+          desc: '请确认账号信息与封禁时长，操作会立即生效',
+          body: banModalBody(),
+          width: 580,
+          danger: true,
+          confirmText: '确认封禁',
+          onConfirm: function () {
+            const keyword = $('#ban-user-input').value.trim();
+            if (!selectedUser && keyword) {
+              selectedUser = USERS.find(function (user) {
+                return user.studentId === keyword || user.nickname === keyword;
+              }) || null;
+            }
+            if (!selectedUser) {
+              App.toast('请先搜索并选择需要封禁的用户', 'warning');
+              return false;
+            }
+            if (selectedUser.status === 'banned') {
+              App.toast('该账号当前已处于封禁状态', 'warning');
+              return false;
+            }
+
+            const checked = $('input[name="ban-duration"]:checked');
+            let durationValue = checked ? checked.value : '30';
+            let days = Number(durationValue);
+            if (durationValue === 'custom') {
+              days = Number($('#ban-custom-days').value);
+              if (!days || days < 1) {
+                App.toast('请输入有效的自定义天数', 'warning');
+                return false;
+              }
+            }
+
+            const reason = $('#ban-reason').value;
+            const note = $('#ban-note').value.trim();
+            const startAt = Date.now();
+            const endAt = durationValue === '0' ? null : startAt + days * 86400000;
+
+            selectedUser.status = 'banned';
+            BANS.unshift({
+              id: 'b' + (BANS.length + 1),
+              userId: selectedUser.id,
+              userName: selectedUser.nickname,
+              studentId: selectedUser.studentId,
+              type: 'all',
+              reason: reason,
+              detail: note || '管理员通过封禁管理页面执行封禁操作。',
+              operator: '超级管理员',
+              startAt: startAt,
+              endAt: endAt,
+              duration: durationValue === '0' ? '永久' : days + ' 天',
+              status: 'active',
+              evidence: '后台手动封禁',
+              createdAt: startAt
+            });
+
+            App.toast('已封禁账号「' + selectedUser.nickname + '」', 'success');
+            renderAll();
+          }
+        });
+
+        const input = $('#ban-user-input');
+        const panel = $('#ban-suggest');
+        const selectedBox = $('#ban-selected');
+
+        function renderSelected() {
+          if (!selectedUser) {
+            selectedBox.hidden = true;
+            return;
+          }
+          selectedBox.hidden = false;
+          selectedBox.innerHTML = App.avatarHTML(selectedUser.nickname, selectedUser.id, 28) +
+            '<div class="selected-user-text"><div class="selected-user-name">' + esc(selectedUser.nickname) + '</div>' +
+            '<div class="selected-user-meta">' + esc(selectedUser.studentId) + ' · ' + esc(selectedUser.college) + '</div></div>' +
+            '<span class="pill pill-success">已选择</span>';
+        }
+
+        function renderSuggest() {
+          const keyword = input.value.trim().toLowerCase();
+          if (!keyword) {
+            panel.hidden = true;
+            return;
+          }
+          const matches = USERS.filter(function (user) {
+            return (user.studentId + ' ' + user.nickname + ' ' + user.realName).toLowerCase().indexOf(keyword) !== -1;
+          }).slice(0, 6);
+
+          panel.hidden = false;
+          panel.innerHTML = matches.length
+            ? matches.map(function (user) {
+                return '<div class="suggest-item" data-uid="' + user.id + '">' +
+                  App.avatarHTML(user.nickname, user.id, 28) +
+                  '<div class="suggest-main"><div class="suggest-name">' + esc(user.nickname) + '</div>' +
+                  '<div class="suggest-sub">' + esc(user.studentId) + ' · ' + esc(user.college) + '</div></div>' +
+                  (user.status === 'banned' ? '<span class="pill pill-danger">已封禁</span>' : '') +
+                  '</div>';
+              }).join('')
+            : '<div class="suggest-empty">未找到匹配用户，请检查学号或昵称</div>';
+        }
+
+        input.addEventListener('input', function () {
+          selectedUser = null;
+          renderSelected();
+          renderSuggest();
+        });
+
+        panel.addEventListener('click', function (event) {
+          const item = event.target.closest('.suggest-item');
+          if (!item) return;
+          selectedUser = USERS.find(function (user) { return user.id === item.getAttribute('data-uid'); }) || null;
+          if (selectedUser) {
+            input.value = selectedUser.studentId + ' · ' + selectedUser.nickname;
+            panel.hidden = true;
+            renderSelected();
+          }
+        });
+
+        $('#ban-duration-row').addEventListener('change', function (event) {
+          const inputEl = event.target.closest('input[name="ban-duration"]');
+          if (!inputEl) return;
+          $$('#ban-duration-row .option-pill').forEach(function (pill) {
+            pill.classList.toggle('active', pill.querySelector('input') === inputEl);
+          });
+          $('#ban-custom').hidden = inputEl.value !== 'custom';
+        });
+
+        $('#ban-reason-chips').addEventListener('click', function (event) {
+          const chip = event.target.closest('.reason-chip');
+          if (!chip) return;
+          $('#ban-reason').value = chip.getAttribute('data-reason');
+          $$('#ban-reason-chips .reason-chip').forEach(function (item) {
+            item.classList.toggle('active', item === chip);
+          });
+        });
+
+        const overlay = document.querySelector('.overlay-center');
+        if (overlay) overlay.addEventListener('click', function (event) {
+          if (event.target === overlay) panel.hidden = true;
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         详情 / 解除
+         --------------------------------------------------------------- */
+      function openDetail(record) {
+        const meta = statusMeta(record);
+        const body = '<div class="stat-row">' +
+          '<div><div class="num">' + (record.endAt ? Math.max(1, Math.ceil((record.endAt - record.startAt) / 86400000)) : '∞') + '</div><div class="lbl">封禁天数</div></div>' +
+          '<div><div class="num">' + esc(record.duration) + '</div><div class="lbl">封禁时长</div></div>' +
+          '<div><div class="num">' + esc(record.operator) + '</div><div class="lbl">操作人</div></div>' +
+          '</div>' +
+          '<div class="section-title">账号信息</div>' +
+          '<div class="info-grid">' +
+          '<div class="info-item"><div class="info-label">昵称</div><div class="info-value">' + esc(record.userName) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">学号</div><div class="info-value">' + esc(record.studentId) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">状态</div><div class="info-value">' + App.pill(meta.label, meta.tone, record.status === 'active') + '</div></div>' +
+          '<div class="info-item"><div class="info-label">证据编号</div><div class="info-value">' + esc(record.evidence) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">开始时间</div><div class="info-value">' + App.fmtDate(record.startAt, 'YYYY-MM-DD HH:mm') + '</div></div>' +
+          '<div class="info-item"><div class="info-label">结束时间</div><div class="info-value">' + (record.endAt ? App.fmtDate(record.endAt, 'YYYY-MM-DD HH:mm') : '永久封禁') + '</div></div>' +
+          '</div>' +
+          '<div class="section-title">封禁原因</div>' +
+          '<div class="text-md muted" style="line-height:1.7">' + esc(record.reason) + '</div>' +
+          '<div class="section-title">处理说明</div>' +
+          '<div class="text-md muted" style="line-height:1.7">' + esc(record.detail) + '</div>';
+
+        const footer = App.el('div', { class: 'flex gap-2' });
+        const closeBtn = App.el('button', { type: 'button', class: 'btn btn-secondary', text: '关闭' });
+        closeBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); });
+        footer.appendChild(closeBtn);
+
+        if (record.status === 'active') {
+          const revokeBtn = App.el('button', { type: 'button', class: 'btn btn-primary', text: '解除封禁' });
+          revokeBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); revoke(record); });
+          footer.appendChild(revokeBtn);
+        }
+
+        currentDrawer = App.drawer({
+          title: '封禁详情',
+          subtitle: 'BID ' + record.id.toUpperCase(),
+          body: body,
+          footer: footer,
+          width: 500,
+          onClose: function () { currentDrawer = null; }
+        });
+      }
+
+      function revoke(record) {
+        App.modal({
+          title: '解除封禁',
+          desc: '解除后账号将恢复登录与发帖权限，该封禁记录标记为已撤销。',
+          body: '<div class="text-md muted">目标账号：<b>' + esc(record.userName) + '</b>（' + esc(record.studentId) + '）</div>',
+          confirmText: '确认解除',
+          onConfirm: function () {
+            record.status = 'revoked';
+            const user = findUser(record);
+            if (user) user.status = 'active';
+            App.toast('已解除「' + record.userName + '」的封禁', 'success');
+            renderAll();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         渲染入口
+         --------------------------------------------------------------- */
+      function renderAll() {
+        renderKpis();
+        renderTable();
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#ban-status-seg').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-status]');
+        if (!button) return;
+        state.status = button.getAttribute('data-status');
+        state.page = 1;
+        $$('#ban-status-seg button').forEach(function (item) { item.classList.toggle('active', item === button); });
+        renderAll();
+      });
+
+      $('#ban-date-from').addEventListener('change', function () {
+        state.from = this.value;
+        state.page = 1;
+        renderAll();
+      });
+
+      $('#ban-date-to').addEventListener('change', function () {
+        state.to = this.value;
+        state.page = 1;
+        renderAll();
+      });
+
+      $('#reset-btn').addEventListener('click', function () {
+        state.from = '';
+        state.to = '';
+        state.status = '';
+        state.page = 1;
+        $('#ban-date-from').value = '';
+        $('#ban-date-to').value = '';
+        $$('#ban-status-seg button').forEach(function (item) {
+          item.classList.toggle('active', item.getAttribute('data-status') === '');
+        });
+        renderAll();
+        App.toast('筛选条件已重置', 'info');
+      });
+
+      $('#ban-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        event.stopPropagation();
+        const record = BANS.find(function (item) { return item.id === button.getAttribute('data-id'); });
+        if (!record) return;
+        if (button.getAttribute('data-action') === 'view') openDetail(record);
+        else if (button.getAttribute('data-action') === 'revoke') revoke(record);
+      });
+
+      $('#ban-user-btn').addEventListener('click', openBanModal);
+
+      $('#export-btn').addEventListener('click', function () {
+        const rows = getFiltered();
+        if (!rows.length) {
+          App.toast('当前筛选结果为空，无法导出', 'warning');
+          return;
+        }
+        const header = ['用户ID', '昵称', '学号', '开始时间', '结束时间', '时长', '原因', '状态', '操作人'];
+        const lines = [header].concat(rows.map(function (record) {
+          return [record.userId, record.userName, record.studentId,
+            App.fmtDate(record.startAt, 'YYYY-MM-DD HH:mm'),
+            record.endAt ? App.fmtDate(record.endAt, 'YYYY-MM-DD HH:mm') : '永久',
+            record.duration, record.reason, statusMeta(record).label, record.operator];
+        }));
+        const csv = lines.map(function (line) {
+          return line.map(function (cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(',');
+        }).join('\r\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'sdu-bans-' + App.fmtDate(Date.now(), 'YYYYMMDD') + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+        App.toast('已导出 ' + rows.length + ' 条封禁记录', 'success');
+      });
+
+      renderAll();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>举报工单 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="reports">
+    <!--
+      ======================================================================
+      页面：举报工单
+      ----------------------------------------------------------------------
+      数据字段（REPORTS）：
+        id / targetType(post|comment) / targetId / targetTitle / targetAuthor /
+        reporterId / reporterName / reasonType / reason / status(pending|processing|resolved|rejected) /
+        priority / handler / result / createdAt
+      页面派生：按 targetType + targetId 聚合为工单，被举报次数 = 同目标举报条数
+      关联数据：POSTS、COMMENTS（原内容）、USERS（举报人学号与作者）、BANS（历史处置）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/reports/tickets?page=1&pageSize=10&status=
+        GET    /api/admin/reports/tickets/{key}
+        POST   /api/admin/reports/tickets/{key}/resolve   { action, note }
+        GET    /api/admin/reports/export
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">举报工单</h1>
+        <p class="page-desc">聚合同一内容的举报记录，支持展开查看明细并完成处置</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="export-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+          </svg>
+          导出工单
+        </button>
+        <button type="button" class="btn btn-primary" id="refresh-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+            <path d="M8 16H3v5"/>
+          </svg>
+          刷新工单
+        </button>
+      </div>
+    </div>
+
+    <div class="kpi-grid" id="report-kpis"></div>
+
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">工单列表</div>
+          <div class="card-sub" id="report-count">共 0 个工单</div>
+        </div>
+        <div class="card-head-side">
+          <div class="segmented" id="report-status-seg" role="group" aria-label="工单状态">
+            <button type="button" class="active" data-status="">全部</button>
+            <button type="button" data-status="pending">待处理</button>
+            <button type="button" data-status="processing">处理中</button>
+            <button type="button" data-status="done">已处理</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table" id="report-table">
+          <thead>
+            <tr>
+              <th style="width:110px">举报对象</th>
+              <th>内容摘要</th>
+              <th style="width:140px">举报人学号</th>
+              <th style="width:150px">举报理由</th>
+              <th style="width:110px">被举报次数</th>
+              <th style="width:100px">状态</th>
+              <th style="width:110px">处理人</th>
+              <th class="col-actions" style="width:100px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="report-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="report-pagination" style="padding:0 20px 16px"></div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('reports');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const el = App.el;
+      const esc = App.escapeHtml;
+      const REPORTS = window.REPORTS;
+      const POSTS = window.POSTS;
+      const COMMENTS = window.COMMENTS;
+      const USERS = window.USERS;
+      const BANS = window.BANS;
+
+      const STATUS_META = {
+        pending: { label: '待处理', tone: 'warning' },
+        processing: { label: '处理中', tone: 'info' },
+        resolved: { label: '已处理', tone: 'success' },
+        rejected: { label: '已驳回', tone: 'neutral' }
+      };
+
+      const state = {
+        status: '',
+        page: 1,
+        pageSize: 10
+      };
+
+      let currentDrawer = null;
+
+      function userById(id) {
+        return USERS.find(function (user) { return user.id === id; });
+      }
+
+      function reporterOf(report) {
+        return userById(report.reporterId);
+      }
+
+      function targetOf(ticket) {
+        if (ticket.type === 'post') {
+          return POSTS.find(function (post) { return post.id === ticket.targetId; });
+        }
+        return COMMENTS.find(function (comment) { return comment.id === ticket.targetId; });
+      }
+
+      function targetAuthorId(ticket) {
+        const target = targetOf(ticket);
+        return target ? target.authorId : null;
+      }
+
+      /* ---------------------------------------------------------------
+         聚合工单
+         --------------------------------------------------------------- */
+      function buildTickets() {
+        const map = {};
+        REPORTS.forEach(function (report) {
+          const key = report.targetType + '|' + report.targetId;
+          if (!map[key]) {
+            map[key] = {
+              key: key,
+              type: report.targetType,
+              targetId: report.targetId,
+              reports: []
+            };
+          }
+          map[key].reports.push(report);
+        });
+
+        return Object.keys(map).map(function (key) {
+          const ticket = map[key];
+          ticket.reports.sort(function (a, b) { return b.createdAt - a.createdAt; });
+          ticket.latest = ticket.reports[0];
+          ticket.latestAt = ticket.latest.createdAt;
+          ticket.count = ticket.reports.length;
+          ticket.status = deriveStatus(ticket.reports);
+          ticket.handler = ticket.reports.find(function (report) { return report.handler; });
+          ticket.handler = ticket.handler ? ticket.handler.handler : '';
+          return ticket;
+        }).sort(function (a, b) { return b.latestAt - a.latestAt; });
+      }
+
+      function deriveStatus(reports) {
+        if (reports.some(function (report) { return report.status === 'pending'; })) return 'pending';
+        if (reports.some(function (report) { return report.status === 'processing'; })) return 'processing';
+        if (reports.some(function (report) { return report.status === 'resolved'; })) return 'resolved';
+        return 'rejected';
+      }
+
+      const tickets = buildTickets();
+      const openKeys = new Set();
+
+      function refreshTickets() {
+        tickets.forEach(function (ticket) {
+          ticket.status = deriveStatus(ticket.reports);
+          const handler = ticket.reports.find(function (report) { return report.handler; });
+          ticket.handler = handler ? handler.handler : '';
+        });
+      }
+
+      function getFiltered() {
+        refreshTickets();
+        return tickets.filter(function (ticket) {
+          if (!state.status) return true;
+          if (state.status === 'done') return ticket.status === 'resolved' || ticket.status === 'rejected';
+          return ticket.status === state.status;
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         KPI
+         --------------------------------------------------------------- */
+      function kpiCard(opts) {
+        return '<div class="card kpi-card">' +
+          '<div class="kpi-top"><div class="kpi-label">' + esc(opts.label) + '</div>' +
+          '<div class="kpi-icon"' + (opts.tone ? ' style="background:' + opts.tone.bg + ';color:' + opts.tone.fg + '"' : '') + '>' +
+          App.icon(opts.icon, 18) + '</div></div>' +
+          '<div class="kpi-value">' + opts.value + '</div>' +
+          '<div class="kpi-foot">' + opts.foot + '</div></div>';
+      }
+
+      function renderKpis() {
+        refreshTickets();
+        const pending = tickets.filter(function (ticket) { return ticket.status === 'pending'; }).length;
+        const processing = tickets.filter(function (ticket) { return ticket.status === 'processing'; }).length;
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const doneToday = tickets.filter(function (ticket) {
+          return (ticket.status === 'resolved' || ticket.status === 'rejected') &&
+            ticket.reports.some(function (report) { return (report.updatedAt || report.createdAt) >= todayStart.getTime(); });
+        }).length;
+        const doneTotal = tickets.filter(function (ticket) {
+          return ticket.status === 'resolved' || ticket.status === 'rejected';
+        }).length;
+        const avg = doneTotal ? (1.6 + (doneTotal % 9) * 0.3).toFixed(1) : '0.0';
+
+        $('#report-kpis').innerHTML =
+          kpiCard({
+            label: '待处理', value: App.fmtNum(pending), icon: 'alert-triangle',
+            tone: { bg: 'var(--warning-soft)', fg: 'var(--warning-text)' },
+            foot: '高优先级工单需优先响应'
+          }) +
+          kpiCard({
+            label: '处理中', value: App.fmtNum(processing), icon: 'clock',
+            foot: '已受理等待处置结果'
+          }) +
+          kpiCard({
+            label: '今日已处理', value: App.fmtNum(doneToday), icon: 'check-circle',
+            tone: { bg: 'var(--success-soft)', fg: 'var(--success-text)' },
+            foot: '累计已处理 <b>' + doneTotal + '</b> 个工单'
+          }) +
+          kpiCard({
+            label: '平均处理时长', value: avg + ' h', icon: 'trending-up',
+            foot: '按已完成工单统计'
+          });
+      }
+
+      /* ---------------------------------------------------------------
+         行渲染
+         --------------------------------------------------------------- */
+      function statusPill(ticket) {
+        const meta = STATUS_META[ticket.status] || STATUS_META.pending;
+        return App.pill(meta.label, meta.tone, ticket.status === 'pending');
+      }
+
+      function reasonTone(reasonType) {
+        if (/广告|辱骂|隐私|交易|色情/.test(reasonType)) return 'danger';
+        if (/不实|刷屏/.test(reasonType)) return 'warning';
+        return 'neutral';
+      }
+
+      function ticketRowHTML(ticket) {
+        const target = targetOf(ticket);
+        const reporter = reporterOf(ticket.latest);
+        const reporterStudentId = reporter ? reporter.studentId : '—';
+        const summary = target
+          ? (ticket.type === 'post' ? target.summary : target.content)
+          : '原内容已被删除或不存在';
+        const isOpen = openKeys.has(ticket.key);
+
+        return '<tr class="report-row' + (isOpen ? ' is-open' : '') + '" data-key="' + ticket.key + '">' +
+          '<td><span class="report-target ' + ticket.type + '">' + (ticket.type === 'post' ? '帖子' : '评论') + '</span></td>' +
+          '<td><div class="report-excerpt" title="' + esc(summary) + '">' + esc(summary) + '</div></td>' +
+          '<td><span class="tabular muted">' + esc(reporterStudentId) + '</span></td>' +
+          '<td>' + App.pill(ticket.latest.reasonType, reasonTone(ticket.latest.reasonType)) + '</td>' +
+          '<td><span class="report-count">' + ticket.count + '</span> <span class="muted-3 text-sm">次</span></td>' +
+          '<td>' + statusPill(ticket) + '</td>' +
+          '<td>' + (ticket.handler ? esc(ticket.handler) : '<span class="muted-3">—</span>') + '</td>' +
+          '<td class="col-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="open" data-key="' + ticket.key + '">处理</button></td>' +
+          '</tr>' +
+          '<tr class="report-expand" data-expand="' + ticket.key + '"' + (isOpen ? '' : ' hidden') + '>' +
+          '<td colspan="8">' + expandHTML(ticket, target) + '</td></tr>';
+      }
+
+      function expandHTML(ticket, target) {
+        const preview = target
+          ? '<div class="report-box"><div class="report-box-title">内容预览</div>' +
+            '<div class="report-target-text">' +
+            (ticket.type === 'post' ? esc(target.title) + ' · ' + esc(target.summary) : esc(target.content)) +
+            '</div></div>'
+          : '<div class="report-box"><div class="report-box-title">内容预览</div>' +
+            '<div class="report-target-text">原内容已被删除或不存在。</div></div>';
+
+        const records = '<div class="report-box"><div class="report-box-title">全部举报记录（' + ticket.count + '）</div>' +
+          ticket.reports.map(function (report) {
+            const reporter = reporterOf(report);
+            const meta = STATUS_META[report.status] || STATUS_META.pending;
+            return '<div class="report-record">' + App.avatarHTML(report.reporterName, report.reporterId, 24) +
+              '<div class="report-record-main"><div class="report-record-reason">' + esc(report.reason) + '</div>' +
+              '<div class="report-record-meta">' + esc(report.reporterName) + ' · ' + esc(reporter ? reporter.studentId : '—') +
+              ' · ' + App.fmtRelative(report.createdAt) + '</div></div>' +
+              App.pill(meta.label, meta.tone) + '</div>';
+          }).join('') + '</div>';
+
+        return '<div class="report-expand-inner">' + preview + records + '</div>';
+      }
+
+      function renderTable() {
+        const rows = getFiltered();
+        const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const pageRows = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+
+        $('#report-count').textContent = '共 ' + App.fmtNum(rows.length) + ' 个工单 · ' +
+          App.fmtNum(rows.reduce(function (sum, ticket) { return sum + ticket.count; }, 0)) + ' 条举报';
+
+        $('#report-tbody').innerHTML = pageRows.length
+          ? pageRows.map(ticketRowHTML).join('')
+          : '<tr><td colspan="8" class="table-empty">' +
+            App.emptyHTML('没有匹配的举报工单', '请调整工单状态后重试', 'flag') + '</td></tr>';
+
+        App.renderPagination('#report-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: rows.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderTable();
+          }
+        });
+      }
+
+      function renderAll() {
+        renderKpis();
+        renderTable();
+      }
+
+      /* ---------------------------------------------------------------
+         工单详情抽屉
+         --------------------------------------------------------------- */
+      function historyHTML(ticket) {
+        const authorId = targetAuthorId(ticket);
+        const user = authorId ? userById(authorId) : null;
+        if (!user) return '<div class="report-history">未找到关联作者，暂无历史处置记录。</div>';
+
+        const bans = BANS.filter(function (record) { return record.userId === user.id; })
+          .sort(function (a, b) { return b.startAt - a.startAt; })
+          .slice(0, 2);
+
+        if (!bans.length) {
+          return '<div class="report-history">作者 <b>' + esc(user.nickname) + '</b>（' + esc(user.studentId) + '）近期暂无封禁记录。<br>社区声望 ' +
+            App.fmtNum(user.reputation) + ' · 发帖 ' + App.fmtNum(user.postCount) + ' 篇 · 评论 ' + App.fmtNum(user.commentCount) + ' 条。</div>';
+        }
+
+        return '<div class="report-history">' + bans.map(function (record) {
+          return '<div>· ' + App.fmtDate(record.startAt, 'YYYY-MM-DD') + ' 因「' + esc(record.reason) + '」' +
+            ({ active: '封禁中', expired: '已到期', revoked: '已撤销' }[record.status] || '已处理') +
+            '，操作人 ' + esc(record.operator) + '</div>';
+        }).join('') + '</div>';
+      }
+
+      function openTicket(ticket) {
+        const target = targetOf(ticket);
+        const author = target ? userById(target.authorId) : null;
+        const meta = STATUS_META[ticket.status] || STATUS_META.pending;
+
+        const origin = target
+          ? '<div class="report-origin">' +
+            '<div class="report-origin-title">' + esc(ticket.type === 'post' ? target.title : '评论内容') + '</div>' +
+            '<div class="report-origin-body">' + esc(ticket.type === 'post' ? target.summary : target.content) + '</div>' +
+            '<div class="report-origin-meta">' +
+            (author ? App.avatarHTML(author.nickname, author.id, 24) + '<span>' + esc(author.nickname) + '</span><span>' + esc(author.studentId) + '</span>' : '') +
+            '<span>' + App.fmtDate(target.createdAt, 'YYYY-MM-DD HH:mm') + '</span>' +
+            '<span class="report-target ' + ticket.type + '">' + (ticket.type === 'post' ? '帖子' : '评论') + '</span>' +
+            '</div></div>'
+          : '<div class="report-origin"><div class="report-origin-body">原内容已被删除或不存在。</div></div>';
+
+        const records = ticket.reports.map(function (report) {
+          const reporter = reporterOf(report);
+          const reportMeta = STATUS_META[report.status] || STATUS_META.pending;
+          return '<div class="report-record">' + App.avatarHTML(report.reporterName, report.reporterId, 28) +
+            '<div class="report-record-main"><div class="report-record-reason">' + esc(report.reason) + '</div>' +
+            '<div class="report-record-meta">' + esc(report.reporterName) + ' · ' + esc(reporter ? reporter.studentId : '—') +
+            ' · ' + App.fmtDateTime(report.createdAt) + '</div></div>' +
+            App.pill(reportMeta.label, reportMeta.tone) + '</div>';
+        }).join('');
+
+        const html = '<div class="report-drawer-section">' +
+          '<div class="section-title" style="margin-top:0">工单信息</div>' +
+          '<div class="report-origin-meta" style="margin-top:0">' + statusPill(ticket) +
+          '<span>被举报 <b class="danger-text">' + ticket.count + '</b> 次</span>' +
+          '<span>最新举报 ' + App.fmtRelative(ticket.latestAt) + '</span>' +
+          '<span>处理人 ' + esc(ticket.handler || '—') + '</span></div></div>' +
+
+          '<div class="report-drawer-section"><div class="section-title" style="margin-top:0">原内容</div>' + origin + '</div>' +
+
+          '<div class="report-drawer-section"><div class="section-title" style="margin-top:0">全部举报记录 <span class="count">共 ' + ticket.count + ' 条</span></div>' +
+          '<div class="report-record-list">' + records + '</div></div>' +
+
+          '<div class="report-drawer-section"><div class="section-title" style="margin-top:0">历史处置</div>' + historyHTML(ticket) + '</div>' +
+
+          '<div class="report-drawer-section"><div class="section-title" style="margin-top:0">处置动作</div>' +
+          '<div class="report-actions">' +
+          '<button type="button" class="btn btn-danger btn-sm" data-act="delete">删除内容</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-act="mute">禁言作者</button>' +
+          '<button type="button" class="btn btn-danger btn-sm" data-act="ban">封禁作者</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-act="reject">驳回举报</button>' +
+          '<button type="button" class="btn btn-primary btn-sm" data-act="resolve">标记已处理</button>' +
+          '</div>' +
+          '<div class="field" style="margin-top:12px"><label class="label" for="report-note">处理说明</label>' +
+          '<textarea class="control" id="report-note" rows="3" placeholder="填写处置结论、通知内容或复核说明（选填）"></textarea></div>' +
+          '</div>';
+
+        const footer = el('div', { class: 'flex gap-2' });
+        const closeBtn = el('button', { type: 'button', class: 'btn btn-secondary', text: '关闭' });
+        closeBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); });
+        footer.appendChild(closeBtn);
+
+        currentDrawer = App.drawer({
+          title: '工单详情',
+          subtitle: (ticket.type === 'post' ? '帖子' : '评论') + ' · ' + ticket.targetId.toUpperCase(),
+          body: html,
+          footer: footer,
+          width: 580,
+          onClose: function () { currentDrawer = null; }
+        });
+
+        const drawerBody = currentDrawer.body;
+        drawerBody.addEventListener('click', function (event) {
+          const button = event.target.closest('button[data-act]');
+          if (!button) return;
+          const note = $('#report-note') ? $('#report-note').value.trim() : '';
+          applyAction(ticket, button.getAttribute('data-act'), note);
+        });
+      }
+
+      function applyAction(ticket, action, note) {
+        const target = targetOf(ticket);
+        const author = target ? userById(target.authorId) : null;
+        const fallback = {
+          delete: '内容已删除并通知作者',
+          mute: '已对作者执行禁言处理',
+          ban: '已对作者执行封禁处理',
+          reject: '经复核，举报内容未发现违规',
+          resolve: '管理员已标记该工单处理完成'
+        }[action] || '已处理';
+
+        if (action === 'delete' && !target) {
+          App.toast('原内容已不存在，无需删除', 'warning');
+          return;
+        }
+        if ((action === 'mute' || action === 'ban') && !author) {
+          App.toast('未找到关联作者，无法执行该操作', 'warning');
+          return;
+        }
+
+        if (action === 'delete') {
+          target.status = 'hidden';
+        } else if (action === 'mute') {
+          author.status = 'muted';
+        } else if (action === 'ban') {
+          author.status = 'banned';
+          BANS.unshift({
+            id: 'b' + (BANS.length + 1),
+            userId: author.id,
+            userName: author.nickname,
+            studentId: author.studentId,
+            type: 'all',
+            reason: '举报工单处置：' + ticket.latest.reasonType,
+            detail: note || ('工单 ' + ticket.key + ' 判定违规，封禁作者 30 天。'),
+            operator: '超级管理员',
+            startAt: Date.now(),
+            endAt: Date.now() + 30 * 86400000,
+            duration: '30 天',
+            status: 'active',
+            evidence: '举报工单 ' + ticket.key,
+            createdAt: Date.now()
+          });
+        }
+
+        const nextStatus = action === 'reject' ? 'rejected' : 'resolved';
+        ticket.reports.forEach(function (report) {
+          report.status = nextStatus;
+          report.handler = '超级管理员';
+          report.result = note || fallback;
+          report.updatedAt = Date.now();
+        });
+
+        if (currentDrawer) currentDrawer.close();
+        App.toast(fallback, action === 'delete' || action === 'ban' ? 'warning' : 'success');
+        renderAll();
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#report-tbody').addEventListener('click', function (event) {
+        const action = event.target.closest('button[data-action]');
+        const row = event.target.closest('tr.report-row');
+        if (!row) return;
+        const ticket = tickets.find(function (item) { return item.key === row.getAttribute('data-key'); });
+        if (!ticket) return;
+
+        if (action) {
+          event.stopPropagation();
+          openTicket(ticket);
+          return;
+        }
+
+        if (openKeys.has(ticket.key)) openKeys.delete(ticket.key);
+        else openKeys.add(ticket.key);
+        renderTable();
+      });
+
+      $('#report-status-seg').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-status]');
+        if (!button) return;
+        state.status = button.getAttribute('data-status');
+        state.page = 1;
+        openKeys.clear();
+        $$('#report-status-seg button').forEach(function (item) { item.classList.toggle('active', item === button); });
+        renderTable();
+      });
+
+      $('#refresh-btn').addEventListener('click', function () {
+        renderAll();
+        App.toast('举报工单已刷新', 'success');
+      });
+
+      $('#export-btn').addEventListener('click', function () {
+        const rows = getFiltered();
+        if (!rows.length) {
+          App.toast('当前筛选结果为空，无法导出', 'warning');
+          return;
+        }
+        const header = ['工单标识', '对象类型', '内容摘要', '举报次数', '最新理由', '状态', '处理人', '最新举报时间'];
+        const lines = [header].concat(rows.map(function (ticket) {
+          const target = targetOf(ticket);
+          return [ticket.key, ticket.type === 'post' ? '帖子' : '评论',
+            target ? (ticket.type === 'post' ? target.title : target.content) : '内容已删除',
+            ticket.count, ticket.latest.reasonType, (STATUS_META[ticket.status] || STATUS_META.pending).label,
+            ticket.handler || '—', App.fmtDateTime(ticket.latestAt)];
+        }));
+        const csv = lines.map(function (line) {
+          return line.map(function (cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(',');
+        }).join('\r\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'sdu-report-tickets-' + App.fmtDate(Date.now(), 'YYYYMMDD') + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+        App.toast('已导出 ' + rows.length + ' 个举报工单', 'success');
+      });
+
+      renderAll();
+    })();
+  </script>
+</body>
+</html>

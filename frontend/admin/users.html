@@ -139,21 +139,24 @@
         </div>
       </div>
 
-      <div class="batch-bar" id="users-batch" hidden>
-        <span>已选择 <b class="batch-count" id="batch-count">0</b> 项</span>
-        <div class="batch-actions">
-          <button type="button" class="btn btn-danger btn-sm" id="batch-ban">批量封禁</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="batch-clear">清除选择</button>
-        </div>
-      </div>
-
       <div id="users-table"></div>
       <div id="users-pagination"></div>
+    </div>
+
+    <div class="floating-batch" id="users-batch" hidden>
+      <span class="batch-text">已选 <b id="batch-count">0</b> 项</span>
+      <span class="divider-v"></span>
+      <div class="batch-actions">
+        <button type="button" class="btn btn-danger btn-sm" id="batch-ban">批量封禁</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="batch-export">批量导出</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="batch-clear">取消选择</button>
+      </div>
     </div>
   </main>
 
   <script src="assets/app.js"></script>
   <script src="assets/mock.js"></script>
+  <script src="assets/charts.js"></script>
   <script>
     (function () {
       'use strict';
@@ -285,9 +288,50 @@
         return App.pill(ROLE_LABEL[user.role] || user.role, ROLE_TONE[user.role] || 'neutral');
       }
 
+      /* 行内迷你趋势：基于用户 ID 生成稳定的 12 期序列 */
+      const LIKE_MAP = {};
+      window.POSTS.forEach(function (post) {
+        LIKE_MAP[post.authorId] = (LIKE_MAP[post.authorId] || 0) + post.likeCount;
+      });
+
+      function likesOf(user) {
+        return LIKE_MAP[user.id] != null ? LIKE_MAP[user.id] : Math.round(user.reputation * 1.6);
+      }
+
+      function hashOf(text) {
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) {
+          hash = (hash * 31 + text.charCodeAt(i)) % 100003;
+        }
+        return hash;
+      }
+
+      function sparkSeries(user, salt, value) {
+        let seed = hashOf(user.id + salt) % 89 + 7;
+        const series = [];
+        for (let i = 0; i < 12; i++) {
+          seed = (seed * 37 + 17) % 97;
+          series.push(Math.max(0, Math.round(value * (0.55 + seed / 160) + i * value * 0.015)));
+        }
+        return series;
+      }
+
+      function sparkCell(user, value, salt, color) {
+        const node = document.createElement('div');
+        window.Charts.sparkline(node, {
+          data: sparkSeries(user, salt, value),
+          color: color,
+          width: 84,
+          height: 24,
+          area: true
+        });
+        return '<div class="spark-cell"><span class="spark-value">' + App.fmtNum(value) + '</span>' +
+          '<span class="user-spark">' + node.innerHTML + '</span></div>';
+      }
+
       const columns = [
         {
-          title: '用户', width: '220px',
+          title: '用户', width: '210px',
           cell: function (user) {
             return '<div class="table-user">' + App.avatarHTML(user.nickname, user.id, 32) +
               '<div style="min-width:0"><div class="cell-main">' + esc(user.nickname) + '</div>' +
@@ -295,7 +339,7 @@
           }
         },
         {
-          title: '学院 / 专业', width: '230px',
+          title: '学院 / 专业', width: '190px',
           cell: function (user) {
             return '<div class="cell-main" style="font-weight:400">' + esc(user.college) + '</div>' +
               '<div class="cell-sub">' + esc(user.major) + '</div>';
@@ -304,15 +348,19 @@
         { title: '角色', width: '96px', cell: roleCell },
         { title: '状态', width: '104px', cell: statusCell },
         {
-          title: '发帖', width: '72px', className: 'num-cell text-right',
-          cell: function (user) { return '<span class="tabular">' + App.fmtNum(user.postCount) + '</span>'; }
+          title: '发帖数', width: '120px',
+          cell: function (user) { return sparkCell(user, user.postCount, 'post', 'var(--primary)'); }
+        },
+        {
+          title: '获赞数', width: '120px',
+          cell: function (user) { return sparkCell(user, likesOf(user), 'like', '#60A5FA'); }
         },
         {
           title: '评论', width: '72px', className: 'num-cell text-right',
           cell: function (user) { return '<span class="tabular">' + App.fmtNum(user.commentCount) + '</span>'; }
         },
         {
-          title: '最近活跃', width: '130px',
+          title: '最近活跃', width: '120px',
           cell: function (user) {
             return '<div class="cell-main" style="font-weight:400">' + App.fmtRelative(user.lastActiveAt) + '</div>' +
               '<div class="cell-sub">' + App.fmtDate(user.lastActiveAt, 'MM-DD HH:mm') + '</div>';
@@ -655,17 +703,18 @@
       /* ---------------------------------------------------------------
          导出 / 刷新
          --------------------------------------------------------------- */
-      function exportCsv() {
-        const rows = filteredCache.length ? filteredCache : getFiltered();
+      function exportCsv(onlySelected) {
+        const selectedRows = window.USERS.filter(function (user) { return state.selected.has(user.id); });
+        const rows = onlySelected ? selectedRows : (filteredCache.length ? filteredCache : getFiltered());
         if (!rows.length) {
-          App.toast('当前筛选结果为空，无法导出', 'warning');
+          App.toast(onlySelected ? '请先选择需要导出的用户' : '当前筛选结果为空，无法导出', 'warning');
           return;
         }
-        const header = ['用户ID', '学号', '昵称', '真实姓名', '学院', '专业', '年级', '角色', '状态', '发帖数', '评论数', '注册时间', '最近活跃'];
+        const header = ['用户ID', '学号', '昵称', '真实姓名', '学院', '专业', '年级', '角色', '状态', '发帖数', '获赞数', '评论数', '注册时间', '最近活跃'];
         const lines = [header].concat(rows.map(function (user) {
           return [
             user.id, user.studentId, user.nickname, user.realName, user.college, user.major, user.grade,
-            ROLE_LABEL[user.role], DICT.userStatus[user.status], user.postCount, user.commentCount,
+            ROLE_LABEL[user.role], DICT.userStatus[user.status], user.postCount, likesOf(user), user.commentCount,
             App.fmtDate(user.registerAt, 'YYYY-MM-DD HH:mm'), App.fmtDate(user.lastActiveAt, 'YYYY-MM-DD HH:mm')
           ];
         }));
@@ -691,7 +740,8 @@
         App.toast('用户数据已刷新', 'success');
       }
 
-      $('#export-btn').addEventListener('click', exportCsv);
+      $('#export-btn').addEventListener('click', function () { exportCsv(false); });
+      $('#batch-export').addEventListener('click', function () { exportCsv(true); });
       $('#refresh-btn').addEventListener('click', refreshData);
       $('#table-refresh').addEventListener('click', refreshData);
       $('#column-settings').addEventListener('click', function () {

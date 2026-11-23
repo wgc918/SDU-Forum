@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>禁言管理 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="mutes">
+    <!--
+      ======================================================================
+      页面：禁言管理
+      ----------------------------------------------------------------------
+      数据说明：
+        Mock 数据未提供独立禁言集合，页面基于 USERS.status = muted 生成记录，
+        并在页面内维护 MUTES 数组（不写入 mock.js）。
+      记录字段：
+        id / userId / userName / studentId / scope(全站|版块数组) /
+        reason / detail / operator / startAt / endAt / duration /
+        status(active|expired|revoked)
+      关联数据：USERS、TAGS（版块多选）、ADMINS
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/mutes?page=1&pageSize=10&from=&to=&status=
+        POST   /api/admin/mutes            { userId, scope, durationDays, reason, detail }
+        POST   /api/admin/mutes/{id}/revoke
+        GET    /api/admin/mutes/stats?from=&to=
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">禁言管理</h1>
+        <p class="page-desc"><strong>禁言仅限制发帖与评论，不影响浏览</strong>；到期后账号将自动恢复互动权限</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="export-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+          </svg>
+          导出记录
+        </button>
+        <button type="button" class="btn btn-danger" id="mute-user-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5Z"/>
+            <line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>
+          </svg>
+          禁言用户
+        </button>
+      </div>
+    </div>
+
+    <div class="kpi-grid" id="mute-kpis"></div>
+
+    <div class="card filter-card">
+      <div class="filter-field">
+        <label class="filter-label">禁言开始日期</label>
+        <div class="date-range">
+          <input class="control" id="mute-date-from" type="date" aria-label="开始日期">
+          <span class="sep">至</span>
+          <input class="control" id="mute-date-to" type="date" aria-label="结束日期">
+        </div>
+      </div>
+      <div class="filter-field" style="min-width:auto">
+        <label class="filter-label">记录状态</label>
+        <div class="segmented" id="mute-status-seg" role="group" aria-label="记录状态">
+          <button type="button" class="active" data-status="">全部</button>
+          <button type="button" data-status="active">禁言中</button>
+          <button type="button" data-status="expired">已到期</button>
+          <button type="button" data-status="revoked">已撤销</button>
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-secondary" id="reset-btn">重置</button>
+      </div>
+    </div>
+
+    <div class="mod-layout">
+      <div class="card table-card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">禁言记录</div>
+            <div class="card-sub" id="mute-count">共 0 条</div>
+          </div>
+        </div>
+        <div id="mute-table"></div>
+        <div id="mute-pagination" style="padding:0 20px 16px"></div>
+      </div>
+
+      <div class="mod-side">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title">禁言原因分布</div>
+              <div class="card-sub">按当前筛选结果统计</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="mod-bars" id="mute-reason-chart"></div>
+            <div class="mod-summary" id="mute-reason-summary"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title">禁言范围结构</div>
+              <div class="card-sub">全站禁言与指定版块禁言占比</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="mod-chart" id="mute-scope-chart"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script src="assets/charts.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('mutes');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const USERS = window.USERS;
+      const TAGS = window.TAGS;
+      const DAY = 86400000;
+      const NOW = Date.now();
+
+      const STATUS_META = {
+        active: { label: '禁言中', tone: 'warning' },
+        expired: { label: '已到期', tone: 'neutral' },
+        revoked: { label: '已撤销', tone: 'info' }
+      };
+
+      const MUTE_REASONS = [
+        '恶意刷屏灌水', '发布广告引流内容', '恶意辱骂他人',
+        '发布不实信息', '侵犯他人隐私', '重复发布违规内容'
+      ];
+      const COMMON_REASONS = ['恶意刷屏灌水', '发布广告引流内容', '恶意辱骂他人', '发布不实信息'];
+
+      const BOARDS = TAGS.slice()
+        .sort(function (a, b) { return b.postCount - a.postCount; })
+        .slice(0, 12)
+        .map(function (tag) { return tag.name; });
+
+      /* ---------------------------------------------------------------
+         基于 muted 用户生成禁言记录
+         --------------------------------------------------------------- */
+      const MUTES = USERS.filter(function (user) { return user.status === 'muted'; })
+        .map(function (user, index) {
+          const daysAgo = (index * 5) % 55 + 1;
+          const startAt = NOW - daysAgo * DAY;
+          const duration = [7, 30, 90][index % 3];
+          const endAt = startAt + duration * DAY;
+          let status = endAt < NOW ? 'expired' : 'active';
+          if (status === 'active' && index % 13 === 0) status = 'revoked';
+
+          let scope = ['全站'];
+          if (index % 4 !== 0) {
+            const first = index % BOARDS.length;
+            scope = [BOARDS[first], BOARDS[(first + 3) % BOARDS.length]];
+            if (index % 3 === 0) scope.push(BOARDS[(first + 6) % BOARDS.length]);
+          }
+
+          return {
+            id: 'm' + (index + 1),
+            userId: user.id,
+            userName: user.nickname,
+            studentId: user.studentId,
+            scope: scope,
+            reason: MUTE_REASONS[index % MUTE_REASONS.length],
+            detail: '账号在版块内多次发布违规互动内容，经核实后执行禁言处理。',
+            operator: '内容审核组',
+            startAt: startAt,
+            endAt: endAt,
+            duration: duration + ' 天',
+            status: status
+          };
+        })
+        .sort(function (a, b) { return b.startAt - a.startAt; });
+
+      const state = {
+        from: '',
+        to: '',
+        status: '',
+        page: 1,
+        pageSize: 10
+      };
+
+      let currentDrawer = null;
+
+      function statusMeta(record) {
+        return STATUS_META[record.status] || STATUS_META.active;
+      }
+
+      function scopeLabel(record) {
+        if (record.scope.length === 1 && record.scope[0] === '全站') {
+          return App.pill('全站', 'info', true);
+        }
+        return '<span class="pill pill-neutral" title="' + esc(record.scope.join('、')) + '">' +
+          record.scope.length + ' 个版块</span>';
+      }
+
+      function getFiltered() {
+        const from = state.from ? new Date(state.from + 'T00:00:00').getTime() : null;
+        const to = state.to ? new Date(state.to + 'T23:59:59').getTime() : null;
+        return MUTES.filter(function (record) {
+          if (state.status && record.status !== state.status) return false;
+          if (from && record.startAt < from) return false;
+          if (to && record.startAt > to) return false;
+          return true;
+        }).sort(function (a, b) { return b.startAt - a.startAt; });
+      }
+
+      /* ---------------------------------------------------------------
+         KPI
+         --------------------------------------------------------------- */
+      function kpiCard(opts) {
+        return '<div class="card kpi-card">' +
+          '<div class="kpi-top"><div class="kpi-label">' + esc(opts.label) + '</div>' +
+          '<div class="kpi-icon"' + (opts.tone ? ' style="background:' + opts.tone.bg + ';color:' + opts.tone.fg + '"' : '') + '>' +
+          App.icon(opts.icon, 18) + '</div></div>' +
+          '<div class="kpi-value">' + App.fmtNum(opts.value) + '</div>' +
+          '<div class="kpi-foot">' + opts.foot + '</div></div>';
+      }
+
+      function renderKpis() {
+        const active = MUTES.filter(function (record) { return record.status === 'active'; }).length;
+        const month = MUTES.filter(function (record) { return record.startAt >= NOW - 30 * DAY; }).length;
+        const soon = MUTES.filter(function (record) {
+          return record.status === 'active' && record.endAt - NOW <= 7 * DAY;
+        }).length;
+        const allSite = MUTES.filter(function (record) {
+          return record.scope.length === 1 && record.scope[0] === '全站';
+        }).length;
+
+        $('#mute-kpis').innerHTML =
+          kpiCard({
+            label: '当前禁言中', value: active, icon: 'volume-x',
+            tone: { bg: 'var(--warning-soft)', fg: 'var(--warning-text)' },
+            foot: '禁言账号仍可正常浏览内容'
+          }) +
+          kpiCard({
+            label: '本月新增', value: month, icon: 'calendar',
+            foot: '统计近 30 天发起的禁言'
+          }) +
+          kpiCard({
+            label: '即将到期', value: soon, icon: 'clock',
+            tone: { bg: 'var(--primary-soft)', fg: 'var(--primary)' },
+            foot: '未来 7 天内自动解除禁言'
+          }) +
+          kpiCard({
+            label: '全站禁言', value: allSite, icon: 'shield',
+            foot: '指定版块禁言 ' + (MUTES.length - allSite) + ' 条'
+          });
+      }
+
+      /* ---------------------------------------------------------------
+         表格
+         --------------------------------------------------------------- */
+      function renderTable() {
+        const rows = getFiltered();
+        const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const pageRows = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+
+        $('#mute-count').textContent = '共 ' + App.fmtNum(rows.length) + ' 条' +
+          (rows.length !== MUTES.length ? '（全部 ' + MUTES.length + ' 条）' : '');
+
+        App.renderTable('#mute-table', [
+          {
+            title: '学号昵称', width: '145px',
+            cell: function (record) {
+              return '<div class="table-user">' + App.avatarHTML(record.userName, record.userId, 32) +
+                '<div style="min-width:0"><div class="cell-main">' + esc(record.userName) + '</div>' +
+                '<div class="cell-sub">' + esc(record.studentId) + '</div></div></div>';
+            }
+          },
+          {
+            title: '禁言范围', width: '90px',
+            cell: scopeLabel
+          },
+          {
+            title: '禁言开始', width: '92px',
+            cell: function (record) {
+              return '<div class="cell-main" style="font-weight:400;white-space:nowrap">' + App.fmtDate(record.startAt, 'YYYY-MM-DD') + '</div>' +
+                '<div class="cell-sub" style="white-space:nowrap">' + App.fmtDate(record.startAt, 'HH:mm') + '</div>';
+            }
+          },
+          {
+            title: '禁言时长', width: '108px',
+            cell: function (record) {
+              return '<div class="cell-main" style="font-weight:400;white-space:nowrap">' + esc(record.duration) + '</div>' +
+                '<div class="cell-sub" style="white-space:nowrap">至 ' + App.fmtDate(record.endAt, 'MM-DD HH:mm') + '</div>';
+            }
+          },
+          {
+            title: '禁言原因', width: '110px',
+            cell: function (record) {
+              return '<div class="mod-reason" title="' + esc(record.reason) + '"><span class="dot"></span><span>' + esc(record.reason) + '</span></div>';
+            }
+          },
+          {
+            title: '状态', width: '76px',
+            cell: function (record) {
+              const meta = statusMeta(record);
+              return App.pill(meta.label, meta.tone, record.status === 'active');
+            }
+          },
+          {
+            title: '操作', align: 'right', width: '72px',
+            cell: function (record) {
+              const revoke = record.status === 'active'
+                ? '<button type="button" class="icon-btn" data-action="revoke" data-id="' + record.id + '" title="解除禁言" aria-label="解除禁言">' + App.icon('user-check', 16) + '</button>'
+                : '';
+              return '<div class="table-actions">' +
+                '<button type="button" class="icon-btn" data-action="view" data-id="' + record.id + '" title="查看详情" aria-label="查看详情">' + App.icon('eye', 16) + '</button>' +
+                revoke + '</div>';
+            }
+          }
+        ], pageRows, {
+          emptyText: '没有匹配的禁言记录',
+          emptyDesc: '请调整日期范围或状态筛选后重试',
+          emptyIcon: 'volume-x',
+          onRowClick: openDetail
+        });
+
+        App.renderPagination('#mute-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: rows.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderTable();
+          }
+        });
+
+        renderCharts();
+      }
+
+      /* ---------------------------------------------------------------
+         图表
+         --------------------------------------------------------------- */
+      function renderCharts() {
+        const rows = getFiltered();
+
+        const counts = {};
+        rows.forEach(function (record) {
+          counts[record.reason] = (counts[record.reason] || 0) + 1;
+        });
+        const reasons = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).slice(0, 6);
+        const max = Math.max.apply(null, reasons.map(function (reason) { return counts[reason]; }).concat([1]));
+
+        $('#mute-reason-chart').innerHTML = reasons.length
+          ? reasons.map(function (reason, index) { return '<div id="mute-reason-bar-' + index + '"></div>'; }).join('')
+          : App.emptyHTML('暂无分布数据', '调整筛选条件后查看禁言原因', 'chart');
+
+        reasons.forEach(function (reason, index) {
+          window.Charts.progress('#mute-reason-bar-' + index, {
+            label: reason,
+            value: counts[reason],
+            max: max,
+            color: index === 0 ? 'var(--warning)' : 'var(--primary)',
+            suffix: ' 条'
+          });
+        });
+
+        $('#mute-reason-summary').innerHTML =
+          '<span>记录总数</span><span><b>' + App.fmtNum(rows.length) + '</b> 条 · TOP 原因 ' +
+          (reasons.length ? esc(reasons[0]) : '—') + '</span>';
+
+        const allSite = rows.filter(function (record) {
+          return record.scope.length === 1 && record.scope[0] === '全站';
+        }).length;
+        window.Charts.donut('#mute-scope-chart', {
+          segments: [
+            { label: '指定版块', value: rows.length - allSite, color: 'var(--primary)' },
+            { label: '全站禁言', value: allSite, color: 'var(--warning)' }
+          ],
+          centerValue: App.fmtNum(rows.length),
+          centerLabel: '禁言记录',
+          legend: true,
+          size: 180,
+          thickness: 18
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         禁言弹窗
+         --------------------------------------------------------------- */
+      function durationOptionHTML(value, label, sub, checked) {
+        return '<label class="option-pill' + (checked ? ' active' : '') + '">' +
+          '<input type="radio" name="mute-duration" value="' + value + '"' + (checked ? ' checked' : '') + '>' +
+          '<span>' + label + '</span><span class="sub">' + sub + '</span></label>';
+      }
+
+      function muteModalBody() {
+        return '<div class="form-stack">' +
+          '<div class="field"><label class="label" for="mute-user-input">学号 / 昵称</label>' +
+          '<div class="suggest-wrap">' +
+          '<input class="control" id="mute-user-input" type="text" placeholder="输入学号或昵称搜索用户" autocomplete="off">' +
+          '<div class="suggest-panel" id="mute-suggest" hidden></div>' +
+          '</div>' +
+          '<div class="selected-user" id="mute-selected" hidden></div>' +
+          '<span class="help-text">禁言仅限制发帖与评论，不影响正常浏览</span></div>' +
+
+          '<div class="field"><label class="label">禁言范围</label>' +
+          '<div class="option-row" style="grid-template-columns:repeat(2,minmax(0,1fr))" id="mute-scope-row">' +
+          '<label class="option-pill active"><input type="radio" name="mute-scope" value="all" checked>' +
+          '<span>全站</span><span class="sub">限制全部版块互动</span></label>' +
+          '<label class="option-pill"><input type="radio" name="mute-scope" value="boards">' +
+          '<span>指定版块</span><span class="sub">仅限制所选版块</span></label>' +
+          '</div>' +
+          '<div class="board-grid" id="mute-board-panel" hidden>' + BOARDS.map(function (board) {
+            return '<label class="board-option"><input type="checkbox" class="checkbox" value="' + esc(board) + '">' +
+              '<span>' + esc(board) + '</span></label>';
+          }).join('') + '</div></div>' +
+
+          '<div class="field"><label class="label">禁言时长</label>' +
+          '<div class="option-row" id="mute-duration-row">' +
+          durationOptionHTML('7', '7 天', '短期', false) +
+          durationOptionHTML('30', '30 天', '常规', true) +
+          durationOptionHTML('90', '90 天', '长期', false) +
+          durationOptionHTML('0', '永久', '不自动解除', false) +
+          durationOptionHTML('custom', '自定义', '按天填写', false) +
+          '</div>' +
+          '<div class="custom-duration" id="mute-custom" hidden>' +
+          '<input class="control" id="mute-custom-days" type="number" min="1" max="3650" value="14" aria-label="自定义天数">' +
+          '<span class="help-text">天</span></div></div>' +
+
+          '<div class="field"><label class="label" for="mute-reason">禁言原因</label>' +
+          '<select class="select" id="mute-reason">' + MUTE_REASONS.map(function (reason) {
+            return '<option value="' + esc(reason) + '">' + esc(reason) + '</option>';
+          }).join('') + '</select>' +
+          '<div class="reason-chips" id="mute-reason-chips">' + COMMON_REASONS.map(function (reason) {
+            return '<button type="button" class="reason-chip" data-reason="' + esc(reason) + '">' + esc(reason) + '</button>';
+          }).join('') + '</div></div>' +
+
+          '<div class="field"><label class="label" for="mute-note">备注说明</label>' +
+          '<textarea class="control" id="mute-note" rows="3" placeholder="填写处理依据或补充说明（选填）"></textarea></div>' +
+          '</div>';
+      }
+
+      function openMuteModal() {
+        let selectedUser = null;
+
+        App.modal({
+          title: '禁言用户',
+          desc: '禁言后账号仍可浏览内容，但无法发帖与评论',
+          body: muteModalBody(),
+          width: 580,
+          danger: true,
+          confirmText: '确认禁言',
+          onConfirm: function () {
+            const keyword = $('#mute-user-input').value.trim();
+            if (!selectedUser && keyword) {
+              selectedUser = USERS.find(function (user) {
+                return user.studentId === keyword || user.nickname === keyword;
+              }) || null;
+            }
+            if (!selectedUser) {
+              App.toast('请先搜索并选择需要禁言的用户', 'warning');
+              return false;
+            }
+            if (selectedUser.status === 'muted') {
+              App.toast('该账号当前已处于禁言状态', 'warning');
+              return false;
+            }
+
+            const scopeMode = ($('input[name="mute-scope"]:checked') || {}).value || 'all';
+            let scope = ['全站'];
+            if (scopeMode === 'boards') {
+              const checked = $$('#mute-board-panel input:checked').map(function (input) { return input.value; });
+              if (!checked.length) {
+                App.toast('请至少选择一个需要禁言的版块', 'warning');
+                return false;
+              }
+              scope = checked;
+            }
+
+            const durationValue = ($('input[name="mute-duration"]:checked') || {}).value || '30';
+            let days = Number(durationValue);
+            if (durationValue === 'custom') {
+              days = Number($('#mute-custom-days').value);
+              if (!days || days < 1) {
+                App.toast('请输入有效的自定义天数', 'warning');
+                return false;
+              }
+            }
+
+            const startAt = Date.now();
+            const endAt = durationValue === '0' ? startAt + 3650 * DAY : startAt + days * DAY;
+            selectedUser.status = 'muted';
+            MUTES.unshift({
+              id: 'm' + (MUTES.length + 1),
+              userId: selectedUser.id,
+              userName: selectedUser.nickname,
+              studentId: selectedUser.studentId,
+              scope: scope,
+              reason: $('#mute-reason').value,
+              detail: $('#mute-note').value.trim() || '管理员通过禁言管理页面执行禁言操作。',
+              operator: '超级管理员',
+              startAt: startAt,
+              endAt: endAt,
+              duration: durationValue === '0' ? '永久' : days + ' 天',
+              status: 'active'
+            });
+
+            state.page = 1;
+            App.toast('已禁言账号「' + selectedUser.nickname + '」', 'success');
+            renderAll();
+          }
+        });
+
+        const input = $('#mute-user-input');
+        const panel = $('#mute-suggest');
+        const selectedBox = $('#mute-selected');
+
+        function renderSelected() {
+          if (!selectedUser) {
+            selectedBox.hidden = true;
+            return;
+          }
+          selectedBox.hidden = false;
+          selectedBox.innerHTML = App.avatarHTML(selectedUser.nickname, selectedUser.id, 28) +
+            '<div class="selected-user-text"><div class="selected-user-name">' + esc(selectedUser.nickname) + '</div>' +
+            '<div class="selected-user-meta">' + esc(selectedUser.studentId) + ' · ' + esc(selectedUser.college) + '</div></div>' +
+            '<span class="pill pill-success">已选择</span>';
+        }
+
+        function renderSuggest() {
+          const keyword = input.value.trim().toLowerCase();
+          if (!keyword) {
+            panel.hidden = true;
+            return;
+          }
+          const matches = USERS.filter(function (user) {
+            return (user.studentId + ' ' + user.nickname + ' ' + user.realName).toLowerCase().indexOf(keyword) !== -1;
+          }).slice(0, 6);
+
+          panel.hidden = false;
+          panel.innerHTML = matches.length
+            ? matches.map(function (user) {
+                return '<div class="suggest-item" data-uid="' + user.id + '">' +
+                  App.avatarHTML(user.nickname, user.id, 28) +
+                  '<div class="suggest-main"><div class="suggest-name">' + esc(user.nickname) + '</div>' +
+                  '<div class="suggest-sub">' + esc(user.studentId) + ' · ' + esc(user.college) + '</div></div>' +
+                  (user.status === 'muted' ? '<span class="pill pill-warning">禁言中</span>' : '') +
+                  '</div>';
+              }).join('')
+            : '<div class="suggest-empty">未找到匹配用户，请检查学号或昵称</div>';
+        }
+
+        input.addEventListener('input', function () {
+          selectedUser = null;
+          renderSelected();
+          renderSuggest();
+        });
+
+        panel.addEventListener('click', function (event) {
+          const item = event.target.closest('.suggest-item');
+          if (!item) return;
+          selectedUser = USERS.find(function (user) { return user.id === item.getAttribute('data-uid'); }) || null;
+          if (selectedUser) {
+            input.value = selectedUser.studentId + ' · ' + selectedUser.nickname;
+            panel.hidden = true;
+            renderSelected();
+          }
+        });
+
+        $('#mute-scope-row').addEventListener('change', function (event) {
+          const inputEl = event.target.closest('input[name="mute-scope"]');
+          if (!inputEl) return;
+          $$('#mute-scope-row .option-pill').forEach(function (pill) {
+            pill.classList.toggle('active', pill.querySelector('input') === inputEl);
+          });
+          $('#mute-board-panel').hidden = inputEl.value !== 'boards';
+        });
+
+        $('#mute-duration-row').addEventListener('change', function (event) {
+          const inputEl = event.target.closest('input[name="mute-duration"]');
+          if (!inputEl) return;
+          $$('#mute-duration-row .option-pill').forEach(function (pill) {
+            pill.classList.toggle('active', pill.querySelector('input') === inputEl);
+          });
+          $('#mute-custom').hidden = inputEl.value !== 'custom';
+        });
+
+        $('#mute-reason-chips').addEventListener('click', function (event) {
+          const chip = event.target.closest('.reason-chip');
+          if (!chip) return;
+          $('#mute-reason').value = chip.getAttribute('data-reason');
+          $$('#mute-reason-chips .reason-chip').forEach(function (item) {
+            item.classList.toggle('active', item === chip);
+          });
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         详情 / 解除
+         --------------------------------------------------------------- */
+      function openDetail(record) {
+        const meta = statusMeta(record);
+        const body = '<div class="stat-row">' +
+          '<div><div class="num">' + esc(record.duration) + '</div><div class="lbl">禁言时长</div></div>' +
+          '<div><div class="num">' + (record.scope.length === 1 && record.scope[0] === '全站' ? '全站' : record.scope.length + ' 个') + '</div><div class="lbl">禁言范围</div></div>' +
+          '<div><div class="num">' + esc(record.operator) + '</div><div class="lbl">操作人</div></div>' +
+          '</div>' +
+          '<div class="section-title">账号信息</div>' +
+          '<div class="info-grid">' +
+          '<div class="info-item"><div class="info-label">昵称</div><div class="info-value">' + esc(record.userName) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">学号</div><div class="info-value">' + esc(record.studentId) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">状态</div><div class="info-value">' + App.pill(meta.label, meta.tone, record.status === 'active') + '</div></div>' +
+          '<div class="info-item"><div class="info-label">开始时间</div><div class="info-value">' + App.fmtDate(record.startAt, 'YYYY-MM-DD HH:mm') + '</div></div>' +
+          '<div class="info-item"><div class="info-label">结束时间</div><div class="info-value">' + App.fmtDate(record.endAt, 'YYYY-MM-DD HH:mm') + '</div></div>' +
+          '<div class="info-item"><div class="info-label">禁言原因</div><div class="info-value">' + esc(record.reason) + '</div></div>' +
+          '</div>' +
+          '<div class="section-title">禁言范围</div>' +
+          '<div class="text-md muted" style="line-height:1.7">' + esc(record.scope.join('、')) + '</div>' +
+          '<div class="section-title">处理说明</div>' +
+          '<div class="text-md muted" style="line-height:1.7">' + esc(record.detail) + '</div>';
+
+        const footer = App.el('div', { class: 'flex gap-2' });
+        const closeBtn = App.el('button', { type: 'button', class: 'btn btn-secondary', text: '关闭' });
+        closeBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); });
+        footer.appendChild(closeBtn);
+
+        if (record.status === 'active') {
+          const revokeBtn = App.el('button', { type: 'button', class: 'btn btn-primary', text: '解除禁言' });
+          revokeBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); revoke(record); });
+          footer.appendChild(revokeBtn);
+        }
+
+        currentDrawer = App.drawer({
+          title: '禁言详情',
+          subtitle: 'MID ' + record.id.toUpperCase(),
+          body: body,
+          footer: footer,
+          width: 500,
+          onClose: function () { currentDrawer = null; }
+        });
+      }
+
+      function revoke(record) {
+        App.modal({
+          title: '解除禁言',
+          desc: '解除后账号将恢复发帖与评论权限，该记录标记为已撤销。',
+          body: '<div class="text-md muted">目标账号：<b>' + esc(record.userName) + '</b>（' + esc(record.studentId) + '）</div>',
+          confirmText: '确认解除',
+          onConfirm: function () {
+            record.status = 'revoked';
+            const user = USERS.find(function (item) { return item.id === record.userId; });
+            if (user) user.status = 'active';
+            App.toast('已解除「' + record.userName + '」的禁言', 'success');
+            renderAll();
+          }
+        });
+      }
+
+      function renderAll() {
+        renderKpis();
+        renderTable();
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#mute-status-seg').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-status]');
+        if (!button) return;
+        state.status = button.getAttribute('data-status');
+        state.page = 1;
+        $$('#mute-status-seg button').forEach(function (item) { item.classList.toggle('active', item === button); });
+        renderAll();
+      });
+
+      $('#mute-date-from').addEventListener('change', function () {
+        state.from = this.value;
+        state.page = 1;
+        renderAll();
+      });
+
+      $('#mute-date-to').addEventListener('change', function () {
+        state.to = this.value;
+        state.page = 1;
+        renderAll();
+      });
+
+      $('#reset-btn').addEventListener('click', function () {
+        state.from = '';
+        state.to = '';
+        state.status = '';
+        state.page = 1;
+        $('#mute-date-from').value = '';
+        $('#mute-date-to').value = '';
+        $$('#mute-status-seg button').forEach(function (item) {
+          item.classList.toggle('active', item.getAttribute('data-status') === '');
+        });
+        renderAll();
+        App.toast('筛选条件已重置', 'info');
+      });
+
+      $('#mute-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        event.stopPropagation();
+        const record = MUTES.find(function (item) { return item.id === button.getAttribute('data-id'); });
+        if (!record) return;
+        if (button.getAttribute('data-action') === 'view') openDetail(record);
+        else if (button.getAttribute('data-action') === 'revoke') revoke(record);
+      });
+
+      $('#mute-user-btn').addEventListener('click', openMuteModal);
+
+      $('#export-btn').addEventListener('click', function () {
+        const rows = getFiltered();
+        if (!rows.length) {
+          App.toast('当前筛选结果为空，无法导出', 'warning');
+          return;
+        }
+        const header = ['用户ID', '昵称', '学号', '禁言范围', '开始时间', '结束时间', '时长', '原因', '状态'];
+        const lines = [header].concat(rows.map(function (record) {
+          return [record.userId, record.userName, record.studentId, record.scope.join('、'),
+            App.fmtDate(record.startAt, 'YYYY-MM-DD HH:mm'),
+            App.fmtDate(record.endAt, 'YYYY-MM-DD HH:mm'),
+            record.duration, record.reason, statusMeta(record).label];
+        }));
+        const csv = lines.map(function (line) {
+          return line.map(function (cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(',');
+        }).join('\r\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'sdu-mutes-' + App.fmtDate(Date.now(), 'YYYYMMDD') + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+        App.toast('已导出 ' + rows.length + ' 条禁言记录', 'success');
+      });
+
+      renderAll();
+    })();
+  </script>
+</body>
+</html>

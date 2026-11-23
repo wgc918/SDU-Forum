@@ -36,7 +36,8 @@ admin/
 | 管理员登录 | `login.html` | 已完成 | `POST /api/admin/auth/login` |
 | 运营看板 | `index.html` | 已完成 | `GET /api/admin/dashboard/overview` 等 |
 | 用户列表 | `users.html` | 已完成 | `GET /api/admin/users`、`POST /api/admin/users/{id}/ban` |
-| 封禁管理 | `bans.html` | 待建设 | `GET /api/admin/bans` |
+| 封禁管理 | `bans.html` | 已完成 | `GET /api/admin/bans`、`POST /api/admin/bans` |
+| 禁言管理 | `mutes.html` | 已完成 | `GET /api/admin/mutes`、`POST /api/admin/mutes` |
 | 管理员与角色 | `admins.html` | 待建设 | `GET /api/admin/admins`、`GET /api/admin/roles` |
 | 实名认证 | `verifications.html` | 待建设 | `GET /api/admin/verifications` |
 | 审核队列 | `review.html` | 已完成 | `GET /api/admin/review/queue`、`POST /api/admin/review/batch` |
@@ -44,8 +45,8 @@ admin/
 | 评论管理 | `comments.html` | 已完成 | `GET /api/admin/comments`、`POST /api/admin/comments/batch-delete` |
 | 标签管理 | `tags.html` | 已完成 | `GET /api/admin/tags`、`POST /api/admin/tags` |
 | 敏感词库 | `sensitive-words.html` | 已完成 | `GET /api/admin/sensitive-words`、`PUT /api/admin/sensitive-words/policy` |
-| 举报处理 | `reports.html` | 待建设 | `GET /api/admin/reports` |
-| 用户反馈 | `feedbacks.html` | 待建设 | `GET /api/admin/feedbacks` |
+| 举报工单 | `reports.html` | 已完成 | `GET /api/admin/reports/tickets`、`POST /api/admin/reports/tickets/{key}/resolve` |
+| 用户反馈 | `feedback.html` | 已完成 | `GET /api/admin/feedbacks`、`POST /api/admin/feedbacks/{id}/reply` |
 | 公告管理 | `announcements.html` | 待建设 | `GET /api/admin/announcements` |
 | 数据统计 | `analytics.html` | 待建设 | `GET /api/admin/analytics` |
 | 操作日志 | `logs.html` | 待建设 | `GET /api/admin/logs` |
