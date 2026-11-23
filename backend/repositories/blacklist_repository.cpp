@@ -223,12 +223,6 @@ bool BlacklistRepository::is_blacklisted(uint64_t account_id)
     }
 }
 
-/// 某维度生效
-bool BlacklistRepository::is_banned(uint64_t account_id, ban::BanType type)
-{
-    return exists_active(account_id, type);
-}
-
 /// 某维度生效详情
 std::optional<BlacklistEntry> BlacklistRepository::get_active(uint64_t     account_id,
                                                               ban::BanType type)
@@ -360,7 +354,7 @@ std::vector<BlacklistEntry> BlacklistRepository::search(const BlacklistFilter& f
                 conditions.emplace_back("`status`=0");
         }
 
-        if (filter.account_id != 0)
+        if (filter.account_id)
             conditions.emplace_back("account_id =?");
 
         std::string sql = "SELECT * FROM " + m_blacklist_table;
@@ -388,7 +382,7 @@ std::vector<BlacklistEntry> BlacklistRepository::search(const BlacklistFilter& f
         if (filter.to)
             conn->set_datetime(index++, *filter.to);
         if (filter.account_id != 0)
-            conn->set_uint64(index++, filter.account_id);
+            conn->set_uint64(index++, *filter.account_id);
         conn->set_int(index++, page_size);
         conn->set_int(index++, (page - 1) * page_size);
 

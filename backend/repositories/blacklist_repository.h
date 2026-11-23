@@ -46,7 +46,7 @@ struct BlacklistFilter
     std::optional<std::string>     from;  // "YYYY-MM-DD HH:MM:SS"
     std::optional<std::string>     to;
     std::optional<ban::BanStatus>  status;
-    uint64_t                       account_id;
+    std::optional<uint64_t>        account_id;
 };
 
 class BlacklistRepository
@@ -61,7 +61,8 @@ public:
     bool insert(const BlacklistEntry& data);
 
     /// 幂等检查：某账号在某维度是否存在生效中记录
-    /// 生效判定：status=1 AND (expire_at IS NULL OR expire_at > NOW())
+    ///  @note 仅按维度匹配，不包含 ALL 覆盖的情况
+    /// 当仅存在 ALL 时，其他维度仍返回 false
     bool exists_active(uint64_t account_id, ban::BanType type);
 
     /// 解除封禁（按维度；type=All 表示解除该账号全部生效记录）
@@ -78,9 +79,6 @@ public:
 
     /// 任一维度生效即返回 true
     bool is_blacklisted(uint64_t account_id);
-
-    /// 某维度生效
-    bool is_banned(uint64_t account_id, ban::BanType type);
 
     /// 某维度生效详情
     std::optional<BlacklistEntry> get_active(uint64_t account_id, ban::BanType type);
