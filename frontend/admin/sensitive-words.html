@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>敏感词库 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="sensitive">
+    <!--
+      ======================================================================
+      页面：敏感词管理
+      ----------------------------------------------------------------------
+      数据字段（SENSITIVE_WORDS）：
+        id / word / category / level(high|mid|low) / hitCount / enabled /
+        operator / createdAt
+      页面派生：词库统计、命中策略（命中即拦截 / 命中送审 / 命中替换）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/sensitive-words?page=1&pageSize=20&keyword=&level=&enabled=
+        POST   /api/admin/sensitive-words          { words:[], category, level }
+        PATCH  /api/admin/sensitive-words/{id}     { word, category, level, enabled }
+        DELETE /api/admin/sensitive-words/{id}
+        POST   /api/admin/sensitive-words/batch-delete { ids:[] }
+        POST   /api/admin/sensitive-words/import   multipart/form-data(csv)
+        GET    /api/admin/sensitive-words/export?keyword=&level=
+        GET    /api/admin/sensitive-words/policy
+        PUT    /api/admin/sensitive-words/policy   { mode:block|review|replace }
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">敏感词管理</h1>
+        <p class="page-desc">维护敏感词库与命中策略，控制违规内容的拦截与送审方式</p>
+      </div>
+      <div class="page-actions">
+        <input type="file" id="import-file" accept=".csv,text/csv" hidden>
+        <button type="button" class="btn btn-secondary" id="import-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" x2="12" y1="3" y2="15"/>
+          </svg>
+          导入 CSV
+        </button>
+        <button type="button" class="btn btn-secondary" id="export-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+          </svg>
+          导出词库
+        </button>
+        <button type="button" class="btn btn-danger" id="batch-delete">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+          批量删除
+        </button>
+        <button type="button" class="btn btn-primary" id="add-word-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="M12 5v14"/>
+          </svg>
+          新增敏感词
+        </button>
+      </div>
+    </div>
+
+    <!-- 命中策略 -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <div>
+          <div class="card-title">命中策略</div>
+          <div class="card-sub">策略变更后立即对新发布内容生效，历史内容不受影响</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="policy-grid" id="policy-grid">
+          <label class="policy-card" data-mode="block">
+            <input type="radio" name="sensitive-policy" value="block">
+            <div class="policy-head">
+              <span class="policy-icon">
+                <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>
+                </svg>
+              </span>
+              <span class="policy-name">命中即拦截</span>
+              <span class="radio-dot"></span>
+            </div>
+            <p class="policy-desc">内容命中词库时直接阻止发布，并提示用户修改后再试。</p>
+          </label>
+
+          <label class="policy-card active" data-mode="review">
+            <input type="radio" name="sensitive-policy" value="review" checked>
+            <div class="policy-head">
+              <span class="policy-icon">
+                <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                </svg>
+              </span>
+              <span class="policy-name">命中送审</span>
+              <span class="radio-dot"></span>
+            </div>
+            <p class="policy-desc">内容先进入人工审核队列，审核通过后正常展示，默认推荐策略。</p>
+          </label>
+
+          <label class="policy-card" data-mode="replace">
+            <input type="radio" name="sensitive-policy" value="replace">
+            <div class="policy-head">
+              <span class="policy-icon">
+                <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>
+                </svg>
+              </span>
+              <span class="policy-name">命中替换</span>
+              <span class="radio-dot"></span>
+            </div>
+            <p class="policy-desc">自动将命中词条替换为「***」，内容照常发布并记录命中日志。</p>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 词库表格 -->
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">敏感词库</div>
+          <div class="card-sub" id="word-count">共 0 条</div>
+        </div>
+        <div class="card-head-side">
+          <div class="sensitive-search">
+            <div class="input-icon">
+              <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+              </svg>
+              <input class="control" id="word-search" type="text" placeholder="搜索词条" style="height:32px;width:170px;font-size:12px">
+            </div>
+            <select class="select" id="level-filter" aria-label="按分级筛选">
+              <option value="">全部分级</option>
+              <option value="high">高危</option>
+              <option value="mid">中危</option>
+              <option value="low">低危</option>
+            </select>
+            <select class="select" id="enabled-filter" aria-label="按启用状态筛选">
+              <option value="">全部状态</option>
+              <option value="true">已启用</option>
+              <option value="false">已停用</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="batch-bar" id="word-batch" hidden>
+        <span>已选择 <b class="batch-count" id="batch-count">0</b> 个词条</span>
+        <div class="batch-actions">
+          <button type="button" class="btn btn-danger btn-sm" id="batch-delete-bar">批量删除</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="batch-clear">清除选择</button>
+        </div>
+      </div>
+
+      <div id="word-table"></div>
+      <div id="word-pagination" style="padding:0 20px 16px"></div>
+    </div>
+
+    <!-- 命中日志快捷入口 -->
+    <button type="button" class="hit-log-fab" id="hit-log-btn">
+      <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+        <path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>
+      </svg>
+      命中日志
+    </button>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('sensitive');
+
+      const $ = App.$;
+      const esc = App.escapeHtml;
+      const WORDS = window.SENSITIVE_WORDS;
+
+      const LEVELS = { high: '高危', mid: '中危', low: '低危' };
+      const LEVEL_TONE = { high: 'danger', mid: 'warning', low: 'info' };
+
+      const state = {
+        keyword: '',
+        level: '',
+        enabled: '',
+        page: 1,
+        pageSize: 20,
+        selected: new Set(),
+        policy: 'review'
+      };
+
+      function categories() {
+        const list = [];
+        WORDS.forEach(function (item) {
+          if (list.indexOf(item.category) === -1) list.push(item.category);
+        });
+        return list;
+      }
+
+      function getFiltered() {
+        const keyword = state.keyword.trim().toLowerCase();
+        return WORDS.filter(function (item) {
+          if (keyword && (item.word + ' ' + item.category).toLowerCase().indexOf(keyword) === -1) return false;
+          if (state.level && item.level !== state.level) return false;
+          if (state.enabled === 'true' && !item.enabled) return false;
+          if (state.enabled === 'false' && item.enabled) return false;
+          return true;
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         渲染
+         --------------------------------------------------------------- */
+      function renderPolicy() {
+        App.$$('.policy-card', $('#policy-grid')).forEach(function (card) {
+          card.classList.toggle('active', card.getAttribute('data-mode') === state.policy);
+        });
+      }
+
+      function renderTable() {
+        const rows = getFiltered();
+        const pages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > pages) state.page = pages;
+        const start = (state.page - 1) * state.pageSize;
+        const pageRows = rows.slice(start, start + state.pageSize);
+
+        const enabledCount = WORDS.filter(function (item) { return item.enabled; }).length;
+        $('#word-count').textContent = '共 ' + App.fmtNum(WORDS.length) + ' 条 · 已启用 ' +
+          App.fmtNum(enabledCount) + ' 条' + (rows.length !== WORDS.length ? ' · 筛选结果 ' + App.fmtNum(rows.length) + ' 条' : '');
+
+        App.renderTable('#word-table', [
+          {
+            title: '词条', width: '220px',
+            cell: function (item) {
+              return '<span class="word-cell">' + esc(item.word) + '</span>';
+            }
+          },
+          {
+            title: '分级', width: '96px',
+            cell: function (item) {
+              return App.pill(LEVELS[item.level] || '未分级', LEVEL_TONE[item.level] || 'neutral', true);
+            }
+          },
+          {
+            title: '命中次数', width: '110px',
+            cell: function (item) {
+              return '<span class="tabular">' + App.fmtNum(item.hitCount) + '</span>';
+            }
+          },
+          {
+            title: '添加人', width: '140px',
+            cell: function (item) {
+              return '<div class="table-user">' + App.avatarHTML(item.operator, item.operator, 24) +
+                '<span>' + esc(item.operator) + '</span></div>';
+            }
+          },
+          {
+            title: '添加时间', width: '150px',
+            cell: function (item) {
+              return '<span class="muted-3">' + esc(App.fmtDateTime(item.createdAt)) + '</span>';
+            }
+          },
+          {
+            title: '启用', width: '80px',
+            cell: function (item) {
+              return '<label class="switch"><input type="checkbox" class="js-word-switch" data-id="' + item.id + '"' +
+                (item.enabled ? ' checked' : '') + ' aria-label="启用或停用敏感词"><span class="switch-track"></span></label>';
+            }
+          },
+          {
+            title: '操作', align: 'right', width: '96px',
+            cell: function (item) {
+              return '<div class="table-actions">' +
+                '<button type="button" class="icon-btn" data-action="edit" data-id="' + item.id + '" title="编辑" aria-label="编辑">' + App.icon('edit', 16) + '</button>' +
+                '<button type="button" class="icon-btn danger" data-action="delete" data-id="' + item.id + '" title="删除" aria-label="删除">' + App.icon('trash', 16) + '</button>' +
+                '</div>';
+            }
+          }
+        ], pageRows, {
+          selectable: true,
+          selected: state.selected,
+          onSelectionChange: function (selected) {
+            state.selected = selected;
+            updateBatch();
+          },
+          emptyText: '没有匹配的敏感词',
+          emptyDesc: '请调整关键词或筛选条件后重试',
+          emptyIcon: 'filter'
+        });
+
+        App.renderPagination('#word-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: rows.length,
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderTable();
+          }
+        });
+
+        updateBatch();
+      }
+
+      function updateBatch() {
+        const count = state.selected.size;
+        $('#word-batch').hidden = count === 0;
+        $('#batch-count').textContent = count;
+        $('#batch-delete').disabled = count === 0;
+      }
+
+      /* ---------------------------------------------------------------
+         单个词条编辑 / 删除
+         --------------------------------------------------------------- */
+      function wordFormHTML(item) {
+        const categoryOptions = categories();
+        if (item && categoryOptions.indexOf(item.category) === -1) categoryOptions.push(item.category);
+        return '<div class="form-stack">' +
+          '<div class="field"><label class="label" for="edit-word">词条</label>' +
+          '<input class="control" id="edit-word" maxlength="20" value="' + (item ? esc(item.word) : '') + '"></div>' +
+          '<div class="field"><label class="label" for="edit-category">违规分类</label>' +
+          '<select class="select" id="edit-category">' + categoryOptions.map(function (category) {
+            return '<option value="' + esc(category) + '"' + (item && item.category === category ? ' selected' : '') + '>' + esc(category) + '</option>';
+          }).join('') + '</select></div>' +
+          '<div class="field"><label class="label" for="edit-level">风险分级</label>' +
+          '<select class="select" id="edit-level">' + Object.keys(LEVELS).map(function (key) {
+            return '<option value="' + key + '"' + (item && item.level === key ? ' selected' : '') + '>' + LEVELS[key] + '</option>';
+          }).join('') + '</select></div>' +
+          '</div>';
+      }
+
+      function openEditModal(item) {
+        App.modal({
+          title: '编辑敏感词',
+          desc: '调整词条内容、违规分类与风险分级',
+          body: wordFormHTML(item),
+          confirmText: '保存修改',
+          onConfirm: function () {
+            const word = $('#edit-word').value.trim();
+            if (!word) {
+              App.toast('请输入词条内容', 'warning');
+              return false;
+            }
+            const duplicate = WORDS.some(function (row) {
+              return row.word === word && row.id !== item.id;
+            });
+            if (duplicate) {
+              App.toast('该词条已存在于词库中', 'warning');
+              return false;
+            }
+            item.word = word;
+            item.category = $('#edit-category').value;
+            item.level = $('#edit-level').value;
+            App.toast('敏感词已更新', 'success');
+            renderTable();
+          }
+        });
+      }
+
+      function openDeleteModal(item) {
+        App.modal({
+          title: '删除敏感词',
+          desc: '删除后该词条将不再参与内容命中检测，历史命中日志保留。',
+          body: '<div class="text-md muted">词条：<b>' + esc(item.word) + '</b> · 累计命中 ' + App.fmtNum(item.hitCount) + ' 次</div>',
+          danger: true,
+          confirmText: '确认删除',
+          onConfirm: function () {
+            const index = WORDS.findIndex(function (row) { return row.id === item.id; });
+            if (index !== -1) WORDS.splice(index, 1);
+            state.selected.delete(item.id);
+            App.toast('敏感词「' + item.word + '」已删除', 'success');
+            renderTable();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         新增多个词条
+         --------------------------------------------------------------- */
+      function openAddModal() {
+        const categoryOptions = categories();
+        categoryOptions.push('其他');
+        App.modal({
+          title: '新增敏感词',
+          desc: '支持一次录入多个词条，可用逗号、顿号或换行分隔',
+          body: '<div class="form-stack">' +
+            '<div class="field"><label class="label" for="add-words">词条内容</label>' +
+            '<textarea class="control" id="add-words" rows="5" placeholder="例如：代写代考，办证刷单&#10;高利贷"></textarea>' +
+            '<span class="help-text">重复词条会自动跳过，单个词条最长 20 个字符</span></div>' +
+            '<div class="field"><label class="label" for="add-category">违规分类</label>' +
+            '<select class="select" id="add-category">' + categoryOptions.map(function (category) {
+              return '<option value="' + esc(category) + '">' + esc(category) + '</option>';
+            }).join('') + '</select></div>' +
+            '<div class="field"><label class="label" for="add-level">风险分级</label>' +
+            '<select class="select" id="add-level">' + Object.keys(LEVELS).map(function (key) {
+              return '<option value="' + key + '"' + (key === 'mid' ? ' selected' : '') + '>' + LEVELS[key] + '</option>';
+            }).join('') + '</select></div>' +
+            '</div>',
+          confirmText: '确认新增',
+          onConfirm: function () {
+            const raw = $('#add-words').value;
+            const category = $('#add-category').value;
+            const level = $('#add-level').value;
+            const tokens = raw.split(/[\n,，、;；]+/).map(function (word) {
+              return word.trim().slice(0, 20);
+            }).filter(Boolean);
+
+            if (!tokens.length) {
+              App.toast('请输入至少一个词条', 'warning');
+              return false;
+            }
+
+            const exists = {};
+            WORDS.forEach(function (item) { exists[item.word] = true; });
+            let maxId = 0;
+            WORDS.forEach(function (item) {
+              maxId = Math.max(maxId, parseInt(item.id.slice(1), 10) || 0);
+            });
+
+            const added = [];
+            tokens.forEach(function (word) {
+              if (exists[word]) return;
+              exists[word] = true;
+              maxId += 1;
+              WORDS.unshift({
+                id: 's' + maxId,
+                word: word,
+                category: category,
+                level: level,
+                hitCount: 0,
+                enabled: true,
+                operator: '超级管理员',
+                createdAt: Date.now()
+              });
+              added.push(word);
+            });
+
+            if (!added.length) {
+              App.toast('输入的词条均已存在，未新增任何内容', 'warning');
+              return false;
+            }
+
+            state.page = 1;
+            App.toast('已新增 ' + added.length + ' 个敏感词' + (tokens.length > added.length ? '，跳过 ' + (tokens.length - added.length) + ' 个重复词条' : ''), 'success');
+            renderTable();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         批量删除
+         --------------------------------------------------------------- */
+      function batchDelete() {
+        if (!state.selected.size) {
+          App.toast('请先选择要删除的词条', 'warning');
+          return;
+        }
+        const ids = Array.from(state.selected);
+        App.modal({
+          title: '批量删除敏感词',
+          desc: '将删除所选词条，操作不可撤销，历史命中日志会保留。',
+          body: '<div class="text-md muted">已选择 <b>' + ids.length + '</b> 个词条</div>',
+          danger: true,
+          confirmText: '删除 ' + ids.length + ' 个词条',
+          onConfirm: function () {
+            for (let i = WORDS.length - 1; i >= 0; i--) {
+              if (ids.indexOf(WORDS[i].id) !== -1) WORDS.splice(i, 1);
+            }
+            state.selected.clear();
+            App.toast('已删除 ' + ids.length + ' 个敏感词', 'success');
+            renderTable();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         导入 / 导出
+         --------------------------------------------------------------- */
+      function importCSV(file) {
+        const reader = new FileReader();
+        reader.onload = function () {
+          const text = String(reader.result || '');
+          const lines = text.split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+          const exists = {};
+          WORDS.forEach(function (item) { exists[item.word] = true; });
+          let maxId = 0;
+          WORDS.forEach(function (item) {
+            maxId = Math.max(maxId, parseInt(item.id.slice(1), 10) || 0);
+          });
+
+          let added = 0;
+          lines.forEach(function (line, index) {
+            const cells = line.split(',').map(function (cell) { return cell.trim().replace(/^"|"$/g, ''); });
+            const word = (cells[0] || '').slice(0, 20);
+            if (!word) return;
+            if (index === 0 && /词条|word/i.test(word)) return;
+            if (exists[word]) return;
+            exists[word] = true;
+            maxId += 1;
+            const level = ['high', 'mid', 'low'].indexOf(cells[2]) !== -1 ? cells[2] : 'mid';
+            WORDS.unshift({
+              id: 's' + maxId,
+              word: word,
+              category: cells[1] || '导入词条',
+              level: level,
+              hitCount: 0,
+              enabled: true,
+              operator: '超级管理员',
+              createdAt: Date.now()
+            });
+            added += 1;
+          });
+
+          if (added) {
+            state.page = 1;
+            App.toast('导入完成，新增 ' + added + ' 个敏感词', 'success');
+            renderTable();
+          } else {
+            App.toast('未导入新词条，请检查 CSV 内容或重复项', 'warning');
+          }
+        };
+        reader.onerror = function () {
+          App.toast('文件读取失败，请重试', 'danger');
+        };
+        reader.readAsText(file, 'utf-8');
+      }
+
+      function exportCSV() {
+        const rows = getFiltered();
+        const header = '词条,违规分类,风险分级,命中次数,启用状态,添加人,添加时间';
+        const body = rows.map(function (item) {
+          return [item.word, item.category, LEVELS[item.level] || '', item.hitCount,
+            item.enabled ? '已启用' : '已停用', item.operator, App.fmtDateTime(item.createdAt)]
+            .map(function (cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(',');
+        });
+        const csv = '\ufeff' + [header].concat(body).join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = '敏感词库_' + App.fmtDate(Date.now()) + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        App.toast('已导出 ' + rows.length + ' 个敏感词', 'success');
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#policy-grid').addEventListener('change', function (event) {
+        const input = event.target.closest('input[name="sensitive-policy"]');
+        if (!input) return;
+        state.policy = input.value;
+        renderPolicy();
+        const label = input.closest('.policy-card').querySelector('.policy-name').textContent;
+        App.toast('命中策略已切换为「' + label + '」', 'success');
+      });
+
+      $('#word-table').addEventListener('change', function (event) {
+        if (!event.target.classList.contains('js-word-switch')) return;
+        const item = WORDS.find(function (row) { return row.id === event.target.getAttribute('data-id'); });
+        if (!item) return;
+        item.enabled = event.target.checked;
+        App.toast('「' + item.word + '」已' + (item.enabled ? '启用' : '停用'), 'success');
+        renderTable();
+      });
+
+      $('#word-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const item = WORDS.find(function (row) { return row.id === button.getAttribute('data-id'); });
+        if (!item) return;
+        if (button.getAttribute('data-action') === 'edit') openEditModal(item);
+        else if (button.getAttribute('data-action') === 'delete') openDeleteModal(item);
+      });
+
+      $('#word-search').addEventListener('input', App.debounce(function () {
+        state.keyword = $('#word-search').value;
+        state.page = 1;
+        renderTable();
+      }, 250));
+
+      $('#level-filter').addEventListener('change', function () {
+        state.level = $('#level-filter').value;
+        state.page = 1;
+        renderTable();
+      });
+
+      $('#enabled-filter').addEventListener('change', function () {
+        state.enabled = $('#enabled-filter').value;
+        state.page = 1;
+        renderTable();
+      });
+
+      $('#add-word-btn').addEventListener('click', openAddModal);
+      $('#batch-delete').addEventListener('click', batchDelete);
+      $('#batch-delete-bar').addEventListener('click', batchDelete);
+      $('#batch-clear').addEventListener('click', function () {
+        state.selected.clear();
+        renderTable();
+      });
+
+      $('#import-btn').addEventListener('click', function () { $('#import-file').click(); });
+      $('#import-file').addEventListener('change', function (event) {
+        const file = event.target.files && event.target.files[0];
+        if (file) importCSV(file);
+        event.target.value = '';
+      });
+
+      $('#export-btn').addEventListener('click', exportCSV);
+
+      $('#hit-log-btn').addEventListener('click', function () {
+        App.toast('「命中日志」页面正在建设中', 'info');
+      });
+
+      renderPolicy();
+      renderTable();
+    })();
+  </script>
+</body>
+</html>

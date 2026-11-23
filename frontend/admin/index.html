@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运营看板 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="dashboard">
+    <!--
+      ======================================================================
+      页面：运营看板
+      ----------------------------------------------------------------------
+      数据字段：
+        STATS(totalUsers, newUsersWeek, postsToday, pendingPosts, pendingReports,
+              activeWeek, bannedUsers…)
+        DASHBOARD.growth   { labels[], newUsers[], activeUsers[] }
+        DASHBOARD.interaction { labels[], posts[], comments[] }
+        DASHBOARD.retention[{ label, value, color }]
+        DASHBOARD.todos   [{ id, title, desc, priority, done, link }]
+        DASHBOARD.activities[{ id, time, type, text }]
+        DASHBOARD.hotTags [{ id, name, value, color }]
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET /api/admin/dashboard/overview
+        GET /api/admin/dashboard/growth?days=30
+        GET /api/admin/dashboard/interaction?days=14
+        GET /api/admin/dashboard/retention
+        GET /api/admin/todos?status=pending
+        PATCH /api/admin/todos/{id}      { done: true }
+        GET /api/admin/activities?limit=8
+        GET /api/admin/dashboard/hot-tags?limit=6
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">运营看板</h1>
+        <p class="page-desc" id="updated-at">今日社区运行概览</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="export-report">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+          </svg>
+          导出报表
+        </button>
+        <button type="button" class="btn btn-primary" id="refresh-dashboard">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+            <path d="M8 16H3v5"/>
+          </svg>
+          刷新数据
+        </button>
+      </div>
+    </div>
+
+    <!-- KPI -->
+    <div class="kpi-grid" id="kpi-grid"></div>
+
+    <!-- 成员增长 + 待办 -->
+    <div class="dash-top">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">成员增长趋势</div>
+            <div class="card-sub">近 30 天新增注册用户</div>
+          </div>
+          <div class="chart-legend horizontal">
+            <span class="legend-item"><span class="legend-dot" style="background:var(--primary)"></span>新增用户</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="growth-chart"></div>
+          <div class="chart-summary">
+            <div>30 日累计新增<b id="growth-total">-</b></div>
+            <div>日均新增<b id="growth-avg">-</b></div>
+            <div>当前用户总数<b id="growth-users">-</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">待办事项</div>
+            <div class="card-sub" id="todo-sub">0/0 已完成</div>
+          </div>
+          <button type="button" class="icon-btn" id="todo-add" title="新建待办" aria-label="新建待办">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14"/><path d="M12 5v14"/>
+            </svg>
+          </button>
+        </div>
+        <div class="card-body">
+          <div class="todo-list" id="todo-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 内容互动 + 留存 -->
+    <div class="dash-bottom">
+      <div class="card span-2">
+        <div class="card-head">
+          <div>
+            <div class="card-title">内容互动趋势</div>
+            <div class="card-sub">近 14 天发帖与评论数量</div>
+          </div>
+          <div class="chart-legend horizontal">
+            <span class="legend-item"><span class="legend-dot" style="background:var(--primary)"></span>发帖</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#60A5FA"></span>评论</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="interaction-chart"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">用户留存</div>
+            <div class="card-sub">新用户回访情况</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="retention-chart"></div>
+          <div class="mini-list" id="retention-list" style="margin-top:16px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 最新动态 + 热门标签 -->
+    <div class="dash-bottom" style="margin-top:16px">
+      <div class="card span-2">
+        <div class="card-head">
+          <div>
+            <div class="card-title">最新动态</div>
+            <div class="card-sub">后台操作与社区事件</div>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="view-logs">查看全部</button>
+        </div>
+        <div class="card-body">
+          <div class="timeline" id="activity-timeline"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">热门标签</div>
+            <div class="card-sub">近 30 天帖子分布</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="progress-list" id="hot-tags"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script src="assets/charts.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      const $ = App.$;
+      const esc = App.escapeHtml;
+      const DASHBOARD = window.DASHBOARD;
+      const STATS = window.STATS;
+
+      /* ---------------------------------------------------------------
+         KPI
+         --------------------------------------------------------------- */
+      const DAY = 86400000;
+
+      function renderKpis() {
+        const total = STATS.totalUsers;
+        const prevWeek = window.USERS.filter(function (user) {
+          return user.registerAt >= Date.now() - 14 * DAY && user.registerAt < Date.now() - 7 * DAY;
+        }).length;
+        const weekDelta = prevWeek > 0 ? ((STATS.newUsersWeek - prevWeek) / prevWeek * 100) : 0;
+
+        const yesterdayPosts = window.POSTS.filter(function (post) {
+          return post.createdAt >= Date.now() - 2 * DAY && post.createdAt < Date.now() - DAY;
+        }).length;
+        const postDiff = STATS.postsToday - yesterdayPosts;
+
+        const pendingTotal = STATS.pendingPosts + STATS.pendingReports;
+        const activeRate = total > 0 ? (STATS.activeWeek / total * 100) : 0;
+
+        $('#kpi-grid').innerHTML =
+          kpiCard({
+            label: '注册用户总数', value: App.fmtNum(total), icon: 'users',
+            foot: '<span class="delta ' + (weekDelta >= 0 ? 'up' : 'down') + '">' +
+              (weekDelta >= 0 ? '↑' : '↓') + ' ' + Math.abs(weekDelta).toFixed(1) + '%</span> 较上周 · 新增 ' +
+              App.fmtNum(STATS.newUsersWeek) + ' 人'
+          }) +
+          kpiCard({
+            label: '今日新增帖子', value: App.fmtNum(STATS.postsToday), icon: 'file-text',
+            foot: '<span class="delta ' + (postDiff >= 0 ? 'up' : 'down') + '">' +
+              (postDiff >= 0 ? '↑' : '↓') + ' ' + Math.abs(postDiff) + '</span> 条较昨日'
+          }) +
+          kpiCard({
+            label: '待审核内容', value: App.fmtNum(pendingTotal), icon: 'alert-triangle',
+            tone: { bg: 'var(--warning-soft)', fg: 'var(--warning)' },
+            foot: '帖子 ' + STATS.pendingPosts + ' 条 · 举报 ' + STATS.pendingReports + ' 条'
+          }) +
+          kpiCard({
+            label: '本周活跃用户', value: App.fmtNum(STATS.activeWeek), icon: 'trending-up',
+            foot: '<span class="delta up">' + activeRate.toFixed(1) + '%</span> 用户活跃率'
+          });
+      }
+
+      function kpiCard(opts) {
+        return '<div class="card kpi-card">' +
+          '<div class="kpi-top"><div class="kpi-label">' + esc(opts.label) + '</div>' +
+          '<div class="kpi-icon"' + (opts.tone ? ' style="background:' + opts.tone.bg + ';color:' + opts.tone.fg + '"' : '') + '>' +
+          App.icon(opts.icon, 18) + '</div></div>' +
+          '<div class="kpi-value">' + opts.value + '</div>' +
+          '<div class="kpi-foot">' + opts.foot + '</div></div>';
+      }
+
+      /* ---------------------------------------------------------------
+         图表
+         --------------------------------------------------------------- */
+      function renderCharts() {
+        const growth = DASHBOARD.growth;
+        window.Charts.line('#growth-chart', {
+          labels: growth.labels,
+          series: [{ name: '新增用户', color: 'var(--primary)', data: growth.newUsers }],
+          height: 260
+        });
+
+        const totalGrowth = growth.newUsers.reduce(function (sum, value) { return sum + value; }, 0);
+        $('#growth-total').textContent = App.fmtNum(totalGrowth) + ' 人';
+        $('#growth-avg').textContent = (totalGrowth / growth.newUsers.length).toFixed(1) + ' 人';
+        $('#growth-users').textContent = App.fmtNum(STATS.totalUsers) + ' 人';
+
+        const interaction = DASHBOARD.interaction;
+        window.Charts.bar('#interaction-chart', {
+          labels: interaction.labels,
+          series: [
+            { name: '发帖', color: 'var(--primary)', data: interaction.posts },
+            { name: '评论', color: '#60A5FA', data: interaction.comments }
+          ],
+          height: 260
+        });
+
+        window.Charts.donut('#retention-chart', {
+          segments: [
+            { label: '7 日留存', value: 28.6, color: 'var(--primary)' },
+            { label: '未回访', value: 71.4, color: '#CBD5E1' }
+          ],
+          centerValue: '28.6%',
+          centerLabel: '7 日留存率',
+          legend: false,
+          size: 168
+        });
+
+        const retentionList = $('#retention-list');
+        retentionList.innerHTML = DASHBOARD.retention.map(function (item) {
+          return '<div class="mini-item"><span class="flex items-center gap-2">' +
+            '<span class="legend-dot" style="background:' + item.color + '"></span>' + esc(item.label) + '</span>' +
+            '<span class="tabular" style="font-weight:500;color:var(--text-1)">' + item.value + '%</span></div>';
+        }).join('');
+
+        const hotTags = $('#hot-tags');
+        hotTags.innerHTML = '';
+        const max = hotTags ? Math.max.apply(null, DASHBOARD.hotTags.map(function (tag) { return tag.value; })) : 1;
+        DASHBOARD.hotTags.forEach(function (tag) {
+          const holder = document.createElement('div');
+          hotTags.appendChild(holder);
+          window.Charts.progress(holder, {
+            label: tag.name,
+            value: tag.value,
+            max: max,
+            color: tag.color,
+            suffix: ' 篇'
+          });
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         待办
+         --------------------------------------------------------------- */
+      function renderTodos() {
+        const todos = DASHBOARD.todos;
+        const doneCount = todos.filter(function (todo) { return todo.done; }).length;
+        $('#todo-sub').textContent = doneCount + '/' + todos.length + ' 已完成';
+
+        $('#todo-list').innerHTML = todos.map(function (todo) {
+          const priorityLabel = { high: '高优先级', mid: '中优先级', low: '低优先级' }[todo.priority] || '普通';
+          return '<div class="todo-item' + (todo.done ? ' done' : '') + '" data-id="' + todo.id + '">' +
+            '<input class="checkbox todo-check" type="checkbox"' + (todo.done ? ' checked' : '') + ' aria-label="标记完成">' +
+            '<div class="todo-main"><div class="todo-title">' + esc(todo.title) + '</div>' +
+            '<div class="todo-meta"><span class="todo-priority ' + todo.priority + '">' + priorityLabel + '</span>' +
+            '<span>' + esc(todo.desc) + '</span></div></div></div>';
+        }).join('');
+      }
+
+      $('#todo-list').addEventListener('change', function (event) {
+        if (!event.target.classList.contains('todo-check')) return;
+        const row = event.target.closest('.todo-item');
+        const todo = DASHBOARD.todos.find(function (item) { return item.id === row.getAttribute('data-id'); });
+        if (!todo) return;
+        todo.done = event.target.checked;
+        renderTodos();
+        App.toast(todo.done ? '已标记为完成：' + todo.title : '已恢复为待办：' + todo.title, 'success', 2000);
+      });
+
+      $('#todo-list').addEventListener('click', function (event) {
+        if (event.target.closest('input')) return;
+        const row = event.target.closest('.todo-item');
+        if (!row) return;
+        const todo = DASHBOARD.todos.find(function (item) { return item.id === row.getAttribute('data-id'); });
+        if (todo) App.toast('「' + todo.title + '」对应页面正在建设中', 'info');
+      });
+
+      $('#todo-add').addEventListener('click', function () {
+        App.toast('新建待办功能正在建设中', 'info');
+      });
+
+      /* ---------------------------------------------------------------
+         最新动态 / 热门标签
+         --------------------------------------------------------------- */
+      function renderActivities() {
+        $('#activity-timeline').innerHTML = DASHBOARD.activities.map(function (item) {
+          return '<div class="tl-item ' + (item.type || '') + '"><span class="tl-dot"></span>' +
+            '<div class="tl-time">' + App.fmtRelative(item.time) + '</div>' +
+            '<div class="tl-text">' + item.text + '</div></div>';
+        }).join('');
+      }
+
+      /* ---------------------------------------------------------------
+         导出 / 刷新
+         --------------------------------------------------------------- */
+      function exportReport() {
+        const rows = [
+          ['指标', '数值'],
+          ['注册用户总数', STATS.totalUsers],
+          ['近 7 日新增用户', STATS.newUsersWeek],
+          ['今日新增帖子', STATS.postsToday],
+          ['待审核帖子', STATS.pendingPosts],
+          ['待处理举报', STATS.pendingReports],
+          ['本周活跃用户', STATS.activeWeek],
+          ['封禁中用户', STATS.bannedUsers],
+          [],
+          ['留存指标', '留存率'],
+          DASHBOARD.retention.map(function (item) { return [item.label, item.value + '%']; }),
+          [],
+          ['日期', '新增用户'],
+          DASHBOARD.growth.labels.map(function (label, index) { return [label, DASHBOARD.growth.newUsers[index]]; })
+        ];
+
+        const flattened = [];
+        rows.forEach(function (row) {
+          if (Array.isArray(row[0])) {
+            row.forEach(function (child) { flattened.push(child); });
+          } else {
+            flattened.push(row);
+          }
+        });
+
+        const csv = flattened.map(function (line) {
+          return line.map(function (cell) {
+            return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"';
+          }).join(',');
+        }).join('\r\n');
+
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'sdu-dashboard-' + App.fmtDate(Date.now(), 'YYYYMMDD') + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+        App.toast('运营报表已导出', 'success');
+      }
+
+      function updateTimestamp() {
+        $('#updated-at').textContent = '今日社区运行概览 · 数据更新于 ' + App.fmtDate(Date.now(), 'YYYY-MM-DD HH:mm');
+      }
+
+      $('#export-report').addEventListener('click', exportReport);
+      $('#refresh-dashboard').addEventListener('click', function () {
+        renderKpis();
+        renderCharts();
+        updateTimestamp();
+        App.toast('看板数据已刷新', 'success');
+      });
+      $('#view-logs').addEventListener('click', function () {
+        App.toast('操作日志页面正在建设中', 'info');
+      });
+
+      /* ---------------------------------------------------------------
+         初始化
+         --------------------------------------------------------------- */
+      function init() {
+        updateTimestamp();
+        renderKpis();
+        renderTodos();
+        renderActivities();
+        renderCharts();
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+
+      window.addEventListener('resize', App.debounce(function () {
+        renderCharts();
+      }, 200));
+    })();
+  </script>
+</body>
+</html>

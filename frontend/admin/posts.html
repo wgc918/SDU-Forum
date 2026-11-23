@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>帖子管理 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="posts">
+    <!--
+      ======================================================================
+      页面：帖子管理
+      ----------------------------------------------------------------------
+      数据字段（POSTS）：
+        id / title / summary / authorId / authorName / authorStudentId /
+        tagId / tagName / board / createdAt / viewCount / likeCount /
+        commentCount / status(published|pending|hidden|rejected) / pinned / essence / ip
+      页面分类：二手闲置 / 打听求助 / 社团活动 / 校园招聘 / 学习搭子（由 tagName 映射）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/posts?page=1&pageSize=10&category=&keyword=&tagIds=&status=&sort=
+        GET    /api/admin/posts/{id}
+        POST   /api/admin/posts/{id}/approve
+        POST   /api/admin/posts/{id}/reject  { reason }
+        POST   /api/admin/posts/{id}/hide
+        POST   /api/admin/posts/{id}/restore
+        GET    /api/admin/posts/export?category=&keyword=
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">帖子管理</h1>
+        <p class="page-desc">查看社区帖子内容，执行审核、下架与恢复操作</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="export-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+          </svg>
+          导出帖子
+        </button>
+        <button type="button" class="btn btn-primary" id="refresh-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+            <path d="M8 16H3v5"/>
+          </svg>
+          刷新数据
+        </button>
+      </div>
+    </div>
+
+    <div class="tabs" id="post-tabs"></div>
+
+    <!-- 筛选栏 -->
+    <div class="card filter-card">
+      <div class="filter-field wide">
+        <label class="filter-label" for="filter-keyword">内容关键词</label>
+        <input class="control" id="filter-keyword" type="text" placeholder="搜索标题、摘要、作者或学号">
+      </div>
+      <div class="filter-field">
+        <label class="filter-label">标签</label>
+        <div class="multi-select">
+          <button type="button" class="control multi-trigger" id="tag-trigger" aria-haspopup="true">
+            <span id="tag-trigger-text">全部标签</span>
+            <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="multi-panel" id="tag-panel" hidden>
+            <div class="multi-head"><span>选择标签</span><button type="button" id="tag-clear">清空</button></div>
+            <div id="tag-options"></div>
+          </div>
+        </div>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="filter-status">审核状态</label>
+        <select class="select" id="filter-status">
+          <option value="">全部状态</option>
+          <option value="published">已发布</option>
+          <option value="pending">待审核</option>
+          <option value="rejected">已驳回</option>
+          <option value="hidden">已下架</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="filter-sort">时间排序</label>
+        <select class="select" id="filter-sort">
+          <option value="newest">最新发布</option>
+          <option value="oldest">最早发布</option>
+          <option value="hot">热度最高</option>
+        </select>
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-secondary" id="reset-btn">重置</button>
+        <div class="view-toggle" role="group" aria-label="视图切换">
+          <button type="button" class="active" data-view="list" title="列表视图" aria-label="列表视图">
+            <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
+          </button>
+          <button type="button" data-view="grid" title="卡片视图" aria-label="卡片视图">
+            <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 帖子列表 -->
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">帖子列表</div>
+          <div class="card-sub" id="post-count">共 0 条</div>
+        </div>
+        <div class="card-head-side">
+          <span class="text-sm muted-3" id="view-hint">列表视图</span>
+        </div>
+      </div>
+      <div id="post-container"></div>
+      <div id="post-pagination"></div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('posts');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const el = App.el;
+      const esc = App.escapeHtml;
+      const DICT = window.DICT;
+      const POSTS = window.POSTS;
+      const DAY = 86400000;
+
+      const CATEGORIES = [
+        {
+          name: '二手闲置',
+          tags: ['二手交易', '失物招领']
+        },
+        {
+          name: '打听求助',
+          tags: ['选课攻略', '食堂测评', '宿舍生活', '图书馆', '校车出行', '校园跑', '校园网', '山大气象', '新生指南', '情感树洞', '匿名倾诉', '通知公告', '意见反馈', '站务讨论']
+        },
+        {
+          name: '社团活动',
+          tags: ['社团招新', '音乐现场', '篮球联赛', '摄影', '读书会', '桌游', '志愿服务', '校园活动']
+        },
+        {
+          name: '校园招聘',
+          tags: ['实习经验', '校园招聘', '简历修改', '考公考编']
+        },
+        {
+          name: '学习搭子',
+          tags: ['考研交流', '保研经验', '四六级', '期末复习', '实验室', '论文写作', '交换生', '奖学金']
+        }
+      ];
+
+      const STATUS_META = {
+        published: { label: '已发布', tone: 'success' },
+        pending: { label: '待审核', tone: 'warning' },
+        rejected: { label: '已驳回', tone: 'danger' },
+        hidden: { label: '已下架', tone: 'neutral' }
+      };
+
+      const state = {
+        category: CATEGORIES[0].name,
+        keyword: '',
+        tags: new Set(),
+        status: '',
+        sort: 'newest',
+        view: 'list',
+        page: 1,
+        pageSize: 10
+      };
+
+      let currentDrawer = null;
+
+      function categoryOf(post) {
+        for (let i = 0; i < CATEGORIES.length; i++) {
+          if (CATEGORIES[i].tags.indexOf(post.tagName) !== -1) return CATEGORIES[i].name;
+        }
+        return '打听求助';
+      }
+
+      function statusMeta(post) {
+        return STATUS_META[post.status] || STATUS_META.published;
+      }
+
+      function thumbStrip(post) {
+        let html = '<div class="post-thumbs">';
+        for (let i = 0; i < 4; i++) {
+          const tone = (parseInt(post.id.slice(1), 10) + i) % 5;
+          html += '<span class="post-thumb' + (tone ? ' tone-' + tone : '') + '">' +
+            App.icon('image', 16) + '</span>';
+        }
+        return html + '</div>';
+      }
+
+      function categoryCount(name) {
+        return POSTS.filter(function (post) { return categoryOf(post) === name; }).length;
+      }
+
+      function renderTabs() {
+        $('#post-tabs').innerHTML = CATEGORIES.map(function (category) {
+          return '<button type="button" class="tab' + (category.name === state.category ? ' active' : '') +
+            '" data-category="' + category.name + '">' + category.name +
+            '<span class="tab-count">' + App.fmtNum(categoryCount(category.name)) + '</span></button>';
+        }).join('');
+      }
+
+      function renderTagOptions() {
+        $('#tag-options').innerHTML = window.TAGS.slice()
+          .sort(function (a, b) { return b.postCount - a.postCount; })
+          .map(function (tag) {
+            return '<label class="multi-option"><input type="checkbox" class="checkbox" value="' + tag.id + '"' +
+              (state.tags.has(tag.id) ? ' checked' : '') + '>' +
+              '<span>' + esc(tag.name) + '</span><span class="count">' + App.fmtNum(tag.postCount) + '</span></label>';
+          }).join('');
+      }
+
+      function syncTagTrigger() {
+        const text = state.tags.size === 0 ? '全部标签' : '已选 ' + state.tags.size + ' 个标签';
+        $('#tag-trigger-text').textContent = text;
+      }
+
+      function getFiltered() {
+        const keyword = state.keyword.trim().toLowerCase();
+        const list = POSTS.filter(function (post) {
+          if (categoryOf(post) !== state.category) return false;
+          if (state.status && post.status !== state.status) return false;
+          if (state.tags.size && !state.tags.has(post.tagId)) return false;
+          if (keyword) {
+            const haystack = [post.title, post.summary, post.authorName, post.authorStudentId, post.tagName].join(' ').toLowerCase();
+            if (haystack.indexOf(keyword) === -1) return false;
+          }
+          return true;
+        });
+
+        list.sort(function (a, b) {
+          if (state.sort === 'oldest') return a.createdAt - b.createdAt;
+          if (state.sort === 'hot') return b.viewCount - a.viewCount;
+          return b.createdAt - a.createdAt;
+        });
+        return list;
+      }
+
+      function metaHTML(post) {
+        return '<div class="post-meta">' +
+          '<span class="pill pill-neutral" style="height:20px">#' + esc(post.tagName) + '</span>' +
+          '<span class="meta-item">' + App.avatarHTML(post.authorName, post.authorId, 20) + esc(post.authorName) + '</span>' +
+          '<span class="meta-item">' + esc(post.authorStudentId) + '</span>' +
+          '<span class="meta-item">' + App.icon('clock', 14) + App.fmtRelative(post.createdAt) + '</span>' +
+          '<span class="meta-item">' + App.icon('heart', 14) + App.fmtNum(post.likeCount) + '</span>' +
+          '<span class="meta-item">' + App.icon('comment', 14) + App.fmtNum(post.commentCount) + '</span>' +
+          '</div>';
+      }
+
+      function postActionsHTML(post) {
+        const pendingButtons = post.status === 'pending'
+          ? '<button type="button" class="btn btn-primary btn-sm" data-action="approve">通过</button>' +
+            '<button type="button" class="btn btn-danger btn-sm" data-action="reject">驳回</button>'
+          : '';
+        const hideButton = (post.status === 'hidden' || post.status === 'rejected')
+          ? '<button type="button" class="icon-btn" data-action="restore" title="恢复发布" aria-label="恢复发布">' + App.icon('upload', 16) + '</button>'
+          : '<button type="button" class="icon-btn danger" data-action="hide" title="下架帖子" aria-label="下架帖子">' + App.icon('ban', 16) + '</button>';
+
+        return '<div class="post-side">' +
+          App.pill(statusMeta(post).label, statusMeta(post).tone, post.status === 'pending') +
+          (pendingButtons ? '<div class="flex gap-2">' + pendingButtons + '</div>' : '') +
+          '<div class="post-actions">' +
+          '<button type="button" class="icon-btn" data-action="view" title="查看详情" aria-label="查看详情">' + App.icon('eye', 16) + '</button>' +
+          hideButton +
+          '</div></div>';
+      }
+
+      function postRowHTML(post) {
+        const meta = statusMeta(post);
+        return '<div class="post-row' + (post.status === 'pending' ? ' pending' : '') + '" data-id="' + post.id + '">' +
+          '<div class="post-main">' + thumbStrip(post) +
+          '<div class="post-info">' +
+          '<div class="post-title-row"><span class="post-title">' + esc(post.title) + '</span>' +
+          (post.pinned ? '<span class="badge">置顶</span>' : '') +
+          (post.essence ? '<span class="badge">精华</span>' : '') +
+          '</div>' +
+          '<div class="post-excerpt">' + esc(post.summary) + '</div>' +
+          metaHTML(post) +
+          '</div></div>' +
+          postActionsHTML(post) +
+          '</div>';
+      }
+
+      function postCardHTML(post) {
+        const meta = statusMeta(post);
+        return '<article class="post-card' + (post.status === 'pending' ? ' pending' : '') + '" data-id="' + post.id + '">' +
+          '<div class="post-card-cover">' + thumbStrip(post).replace('<div class="post-thumbs">', '').replace('</div>', '') + '</div>' +
+          '<div class="post-card-body">' +
+          '<div class="post-title-row"><span class="post-title">' + esc(post.title) + '</span></div>' +
+          '<div class="post-excerpt">' + esc(post.summary) + '</div>' +
+          metaHTML(post) +
+          '</div>' +
+          '<div class="post-card-foot">' +
+          '<span>' + App.pill(meta.label, meta.tone, post.status === 'pending') + '</span>' +
+          '<div class="post-actions">' +
+          (post.status === 'pending'
+            ? '<button type="button" class="btn btn-primary btn-sm" data-action="approve">通过</button>' +
+              '<button type="button" class="btn btn-danger btn-sm" data-action="reject">驳回</button>'
+            : '') +
+          '<button type="button" class="icon-btn" data-action="view" title="查看详情" aria-label="查看详情">' + App.icon('eye', 16) + '</button>' +
+          ((post.status === 'hidden' || post.status === 'rejected')
+            ? '<button type="button" class="icon-btn" data-action="restore" title="恢复发布" aria-label="恢复发布">' + App.icon('upload', 16) + '</button>'
+            : '<button type="button" class="icon-btn danger" data-action="hide" title="下架帖子" aria-label="下架帖子">' + App.icon('ban', 16) + '</button>') +
+          '</div></div></article>';
+      }
+
+      function renderAll() {
+        renderTabs();
+        const filtered = getFiltered();
+        const totalPages = Math.max(1, Math.ceil(filtered.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const rows = filtered.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+
+        const mount = $('#post-container');
+        if (!rows.length) {
+          mount.innerHTML = App.emptyHTML('没有找到匹配的帖子', '请调整分类或筛选条件后重试', 'file-text');
+        } else if (state.view === 'grid') {
+          mount.innerHTML = '<div class="post-grid">' + rows.map(postCardHTML).join('') + '</div>';
+        } else {
+          mount.innerHTML = '<div class="post-list">' + rows.map(postRowHTML).join('') + '</div>';
+        }
+
+        $('#post-count').textContent = '共 ' + App.fmtNum(filtered.length) + ' 条 · ' + state.category;
+        $('#view-hint').textContent = state.view === 'grid' ? '卡片视图' : '列表视图';
+
+        App.renderPagination('#post-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: filtered.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderAll();
+          }
+        });
+      }
+
+      function updatePost(post, status, message) {
+        post.status = status;
+        if (currentDrawer) currentDrawer.close();
+        App.toast(message, 'success');
+        renderAll();
+      }
+
+      function approve(post) {
+        updatePost(post, 'published', '帖子已通过审核并发布');
+      }
+
+      function reject(post) {
+        updatePost(post, 'rejected', '帖子已驳回，作者将收到通知');
+      }
+
+      function restore(post) {
+        updatePost(post, 'published', '帖子已恢复发布');
+      }
+
+      function hide(post) {
+        App.modal({
+          title: '下架帖子',
+          desc: '下架后帖子将从论坛前台隐藏，作者可在通知中看到处理结果。',
+          body: '<div class="text-md muted">帖子：<b>' + esc(post.title) + '</b></div>',
+          danger: true,
+          confirmText: '确认下架',
+          onConfirm: function () {
+            updatePost(post, 'hidden', '帖子已下架');
+          }
+        });
+      }
+
+      function openDetail(post) {
+        const meta = statusMeta(post);
+        const imageHtml = (function () {
+          let html = '';
+          for (let i = 0; i < 6; i++) {
+            const tone = (parseInt(post.id.slice(1), 10) + i) % 5;
+            html += '<span class="post-thumb' + (tone ? ' tone-' + tone : '') + '">' + App.icon('image', 18) + '</span>';
+          }
+          return html;
+        })();
+
+        const logs = [
+          { text: '作者提交帖子，进入「' + categoryOf(post) + '」分类', time: App.fmtDate(post.createdAt, 'MM-DD HH:mm') },
+          { text: '系统敏感词检测完成，未命中高风险词条', time: App.fmtDate(post.createdAt + 60000, 'MM-DD HH:mm') },
+          post.status === 'pending'
+            ? { text: '进入人工审核队列，等待处理', time: App.fmtRelative(post.createdAt + 120000) }
+            : { text: '审核人 张明远 ' + (post.status === 'rejected' ? '驳回' : post.status === 'hidden' ? '下架' : '通过') + '该内容', time: App.fmtDate(post.updatedAt || post.createdAt, 'MM-DD HH:mm') }
+        ];
+
+        const html = '<div class="drawer-post-title">' + esc(post.title) + '</div>' +
+          '<div class="drawer-post-meta">' + App.pill(meta.label, meta.tone, post.status === 'pending') +
+          App.pill('#' + post.tagName, 'neutral') +
+          App.pill(categoryOf(post), 'info') +
+          '<span class="text-sm muted-3">' + App.fmtDate(post.createdAt, 'YYYY-MM-DD HH:mm') + '</span></div>' +
+          '<div class="post-content">' +
+          '<p>' + esc(post.summary) + '</p>' +
+          '<p>' + esc('这段时间我也关注了一下相关情况，整理了几点自己的观察：一是信息渠道比较分散，建议大家以学校和学院发布的正式通知为准；二是不同校区的安排可能存在差异，最好提前确认；三是如果遇到问题，可以通过辅导员或相关部门反馈。') + '</p>' +
+          '<p>' + esc('以上只是个人经验，欢迎在评论区补充更准确的信息，也希望大家理性讨论、友善交流。') + '</p>' +
+          '</div>' +
+          '<div class="post-gallery">' + imageHtml + '</div>' +
+          '<div class="stat-row">' +
+          '<div><div class="num">' + App.fmtNum(post.viewCount) + '</div><div class="lbl">浏览</div></div>' +
+          '<div><div class="num">' + App.fmtNum(post.likeCount) + '</div><div class="lbl">点赞</div></div>' +
+          '<div><div class="num">' + App.fmtNum(post.commentCount) + '</div><div class="lbl">评论</div></div>' +
+          '</div>' +
+          '<div class="section-title">审核记录</div>' +
+          '<div class="review-log">' + logs.map(function (log) {
+            return '<div class="review-log-item"><b>' + esc(log.text) + '</b><span class="time">' + esc(log.time) + '</span></div>';
+          }).join('') + '</div>' +
+          '<div class="section-title">作者信息</div>' +
+          '<div class="info-grid">' +
+          '<div class="info-item"><div class="info-label">昵称</div><div class="info-value">' + esc(post.authorName) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">学号</div><div class="info-value">' + esc(post.authorStudentId) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">分类</div><div class="info-value">' + esc(categoryOf(post)) + '</div></div>' +
+          '<div class="info-item"><div class="info-label">发布 IP</div><div class="info-value">' + esc(post.ip) + '</div></div>' +
+          '</div>';
+
+        const footer = el('div', { class: 'flex gap-2' });
+        const closeBtn = el('button', { type: 'button', class: 'btn btn-secondary', text: '关闭' });
+        closeBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); });
+        footer.appendChild(closeBtn);
+
+        if (post.status === 'pending') {
+          const rejectBtn = el('button', { type: 'button', class: 'btn btn-danger', text: '驳回' });
+          const approveBtn = el('button', { type: 'button', class: 'btn btn-primary', text: '通过审核' });
+          rejectBtn.addEventListener('click', function () { reject(post); });
+          approveBtn.addEventListener('click', function () { approve(post); });
+          footer.appendChild(rejectBtn);
+          footer.appendChild(approveBtn);
+        } else if (post.status === 'published') {
+          const hideBtn = el('button', { type: 'button', class: 'btn btn-danger', text: '下架帖子' });
+          hideBtn.addEventListener('click', function () { hide(post); });
+          footer.appendChild(hideBtn);
+        } else {
+          const restoreBtn = el('button', { type: 'button', class: 'btn btn-primary', text: '恢复发布' });
+          restoreBtn.addEventListener('click', function () { restore(post); });
+          footer.appendChild(restoreBtn);
+        }
+
+        currentDrawer = App.drawer({
+          title: '帖子详情',
+          subtitle: 'PID ' + post.id.toUpperCase(),
+          body: html,
+          footer: footer,
+          width: 520,
+          onClose: function () { currentDrawer = null; }
+        });
+      }
+
+      function findPost(id) {
+        return POSTS.find(function (post) { return post.id === id; });
+      }
+
+      /* 事件：Tab */
+      $('#post-tabs').addEventListener('click', function (event) {
+        const tab = event.target.closest('.tab');
+        if (!tab) return;
+        state.category = tab.getAttribute('data-category');
+        state.page = 1;
+        renderAll();
+      });
+
+      /* 事件：筛选 */
+      $('#filter-keyword').addEventListener('input', App.debounce(function () {
+        state.keyword = $('#filter-keyword').value;
+        state.page = 1;
+        renderAll();
+      }, 300));
+
+      $('#filter-status').addEventListener('change', function () {
+        state.status = this.value;
+        state.page = 1;
+        renderAll();
+      });
+
+      $('#filter-sort').addEventListener('change', function () {
+        state.sort = this.value;
+        state.page = 1;
+        renderAll();
+      });
+
+      /* 事件：标签多选 */
+      const tagPanel = $('#tag-panel');
+      $('#tag-trigger').addEventListener('click', function (event) {
+        event.stopPropagation();
+        tagPanel.hidden = !tagPanel.hidden;
+      });
+      tagPanel.addEventListener('click', function (event) { event.stopPropagation(); });
+
+      $('#tag-options').addEventListener('change', function (event) {
+        if (!event.target.matches('input[type="checkbox"]')) return;
+        if (event.target.checked) state.tags.add(event.target.value);
+        else state.tags.delete(event.target.value);
+        state.page = 1;
+        syncTagTrigger();
+        renderAll();
+      });
+
+      $('#tag-clear').addEventListener('click', function () {
+        state.tags.clear();
+        $$('#tag-options input[type="checkbox"]').forEach(function (checkbox) { checkbox.checked = false; });
+        state.page = 1;
+        syncTagTrigger();
+        renderAll();
+      });
+
+      document.addEventListener('click', function () { tagPanel.hidden = true; });
+
+      /* 事件：重置 / 视图切换 */
+      $('#reset-btn').addEventListener('click', function () {
+        state.keyword = '';
+        state.tags.clear();
+        state.status = '';
+        state.sort = 'newest';
+        state.page = 1;
+        $('#filter-keyword').value = '';
+        $('#filter-status').value = '';
+        $('#filter-sort').value = 'newest';
+        $$('#tag-options input[type="checkbox"]').forEach(function (checkbox) { checkbox.checked = false; });
+        syncTagTrigger();
+        renderAll();
+        App.toast('筛选条件已重置', 'info');
+      });
+
+      $$('.view-toggle button').forEach(function (button) {
+        button.addEventListener('click', function () {
+          state.view = button.getAttribute('data-view');
+          $$('.view-toggle button').forEach(function (item) { item.classList.toggle('active', item === button); });
+          state.page = 1;
+          renderAll();
+        });
+      });
+
+      /* 事件：列表 / 卡片操作 */
+      $('#post-container').addEventListener('click', function (event) {
+        const actionBtn = event.target.closest('button[data-action]');
+        const card = event.target.closest('[data-id]');
+        if (!card) return;
+        const post = findPost(card.getAttribute('data-id'));
+        if (!post) return;
+
+        if (!actionBtn) {
+          openDetail(post);
+          return;
+        }
+        const action = actionBtn.getAttribute('data-action');
+        event.stopPropagation();
+        if (action === 'view') openDetail(post);
+        else if (action === 'approve') approve(post);
+        else if (action === 'reject') reject(post);
+        else if (action === 'hide') hide(post);
+        else if (action === 'restore') restore(post);
+      });
+
+      /* 导出 / 刷新 */
+      function exportCsv() {
+        const rows = getFiltered();
+        if (!rows.length) {
+          App.toast('当前筛选结果为空，无法导出', 'warning');
+          return;
+        }
+        const header = ['帖子ID', '标题', '分类', '标签', '作者', '学号', '浏览', '点赞', '评论', '状态', '发布时间'];
+        const lines = [header].concat(rows.map(function (post) {
+          return [post.id, post.title, categoryOf(post), post.tagName, post.authorName, post.authorStudentId,
+            post.viewCount, post.likeCount, post.commentCount, statusMeta(post).label,
+            App.fmtDate(post.createdAt, 'YYYY-MM-DD HH:mm')];
+        }));
+        const csv = lines.map(function (line) {
+          return line.map(function (cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(',');
+        }).join('\r\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'sdu-posts-' + App.fmtDate(Date.now(), 'YYYYMMDD') + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+        App.toast('已导出 ' + App.fmtNum(rows.length) + ' 条帖子数据', 'success');
+      }
+
+      $('#export-btn').addEventListener('click', exportCsv);
+      $('#refresh-btn').addEventListener('click', function () {
+        renderAll();
+        App.toast('帖子数据已刷新', 'success');
+      });
+
+      /* 初始化 */
+      renderTagOptions();
+      syncTagTrigger();
+
+      /* 确保默认分类首屏存在一条待审核示例 */
+      (function ensurePendingExample() {
+        const firstPage = POSTS.filter(function (post) {
+          return categoryOf(post) === state.category;
+        }).sort(function (a, b) { return b.createdAt - a.createdAt; }).slice(0, state.pageSize);
+        const hasPending = firstPage.some(function (post) { return post.status === 'pending'; });
+        if (!hasPending && firstPage.length) firstPage[0].status = 'pending';
+      })();
+
+      renderAll();
+    })();
+  </script>
+</body>
+</html>

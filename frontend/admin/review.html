@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>审核队列 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="review">
+    <!--
+      ======================================================================
+      页面：审核队列
+      ----------------------------------------------------------------------
+      数据来源：
+        POSTS(status=pending)、COMMENTS(status=reviewing)、REPORTS、USERS
+      队列字段（由 mock 派生）：
+        id / type(post|comment) / ref / title / preview / author / studentId /
+        createdAt / tagName / source(keyword|report|newuser|rule) / reason / history
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET  /api/admin/review/queue?source=&page=1&pageSize=8
+        POST /api/admin/review/{id}/approve
+        POST /api/admin/review/{id}/reject   { reason }
+        POST /api/admin/review/{id}/ignore
+        POST /api/admin/review/batch-approve { ids:[] }
+        GET  /api/admin/review/summary
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">审核队列</h1>
+        <p class="page-desc">集中处理自动命中与用户举报内容，保障社区内容质量</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="refresh-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+            <path d="M8 16H3v5"/>
+          </svg>
+          刷新队列
+        </button>
+      </div>
+    </div>
+
+    <div class="source-grid" id="source-grid"></div>
+
+    <div class="review-layout">
+      <section class="review-main">
+        <div class="batch-toolbar">
+          <label class="checkbox-label">
+            <input class="checkbox" type="checkbox" id="review-select-all">
+            全选本页
+          </label>
+          <span>已选 <b id="review-selected">0</b> 项</span>
+          <div class="batch-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="review-clear">清除选择</button>
+            <button type="button" class="btn btn-primary btn-sm" id="review-batch-approve" disabled>批量通过</button>
+          </div>
+        </div>
+
+        <div class="review-stream" id="review-stream"></div>
+        <div class="card" id="review-pagination" style="margin-top:12px"></div>
+      </section>
+
+      <aside class="review-aside">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title">审核规则</div>
+              <div class="card-sub">当前生效的社区审核策略</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="rule-list">
+              <div class="rule-item"><span class="rule-index">1</span><span>命中高风险敏感词的内容直接进入人工审核，并记录作者违规次数。</span></div>
+              <div class="rule-item"><span class="rule-index">2</span><span>用户举报需在 2 小时内响应，同一内容被举报 3 次以上标记为高优先级。</span></div>
+              <div class="rule-item"><span class="rule-index">3</span><span>注册 7 天内的新用户首次发帖默认进入复核队列，通过后恢复正常权重。</span></div>
+              <div class="rule-item"><span class="rule-index">4</span><span>版块规则命中时需核对内容完整性，信息缺失可驳回并附上修改建议。</span></div>
+              <div class="rule-item"><span class="rule-index">5</span><span>所有审核操作均写入操作日志，支持按管理员与内容 ID 追溯。</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title">今日审核进度</div>
+              <div class="card-sub">目标：当日内容当日清空</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="review-progress">
+              <div id="review-progress-chart"></div>
+              <div class="review-progress-meta" id="progress-meta"></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script src="assets/charts.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('review');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+
+      const SOURCES = [
+        { key: 'keyword', label: '关键词命中', icon: 'filter', tone: 'warning', desc: '敏感词规则自动命中' },
+        { key: 'report', label: '用户举报', icon: 'flag', tone: 'danger', desc: '社区用户主动举报' },
+        { key: 'newuser', label: '新用户首发', icon: 'users', tone: 'info', desc: '低权重账号首发内容' },
+        { key: 'rule', label: '版块规则', icon: 'shield', tone: 'neutral', desc: '版块规则触发复核' }
+      ];
+      const SOURCE_MAP = {};
+      SOURCES.forEach(function (source) { SOURCE_MAP[source.key] = source; });
+
+      const STUDENT_MAP = {};
+      window.USERS.forEach(function (user) { STUDENT_MAP[user.id] = user.studentId; });
+
+      const BASE_REVIEWED = 46;
+      const TOTAL_TODAY = 68;
+
+      const state = {
+        source: '',
+        page: 1,
+        pageSize: 8,
+        selected: new Set()
+      };
+
+      const handled = new Set();
+      let handledCount = 0;
+      let currentRows = [];
+
+      /* ---------------------------------------------------------------
+         构造队列（帖子待审核 + 评论复核中）
+         --------------------------------------------------------------- */
+      function reasonFor(source, index, item) {
+        if (source === 'keyword') {
+          return '命中敏感词规则，置信度 ' + (82 + index % 15) + '%';
+        }
+        if (source === 'report') {
+          const report = window.REPORTS.find(function (report) {
+            return report.targetId === item.id;
+          });
+          return '用户举报：' + (report ? report.reasonType : '内容不当');
+        }
+        if (source === 'newuser') {
+          return '账号注册 ' + (1 + index % 6) + ' 天内首次发布内容';
+        }
+        return '「' + (item.tagName || '当前版块') + '」版块规则触发人工复核';
+      }
+
+      function historyFor(index) {
+        const times = 1 + index % 3;
+        return '该作者近 30 天有 ' + times + ' 次类似处置，最近一次为「' + (index % 2 ? '内容下架' : '警告提醒') + '」';
+      }
+
+      const queueItems = [];
+
+      window.POSTS.filter(function (post) { return post.status === 'pending'; }).forEach(function (post, index) {
+        const source = SOURCES[index % SOURCES.length].key;
+        queueItems.push({
+          id: 'rq-p-' + post.id,
+          type: 'post',
+          targetLabel: '帖子',
+          ref: post,
+          title: post.title,
+          preview: post.summary,
+          authorName: post.authorName,
+          authorId: post.authorId,
+          studentId: post.authorStudentId,
+          createdAt: post.createdAt,
+          tagName: post.tagName,
+          source: source,
+          reason: reasonFor(source, index, post),
+          history: historyFor(index)
+        });
+      });
+
+      window.COMMENTS.filter(function (comment) { return comment.status === 'reviewing'; }).forEach(function (comment, index) {
+        const source = SOURCES[(index + 2) % SOURCES.length].key;
+        queueItems.push({
+          id: 'rq-c-' + comment.id,
+          type: 'comment',
+          targetLabel: '评论',
+          ref: comment,
+          title: '评论 · ' + comment.postTitle,
+          preview: comment.content,
+          authorName: comment.authorName,
+          authorId: comment.authorId,
+          studentId: STUDENT_MAP[comment.authorId] || '—',
+          createdAt: comment.createdAt,
+          tagName: '评论',
+          source: source,
+          reason: reasonFor(source, index + 7, comment),
+          history: historyFor(index + 3)
+        });
+      });
+
+      queueItems.sort(function (a, b) { return b.createdAt - a.createdAt; });
+
+      /* ---------------------------------------------------------------
+         统计与渲染
+         --------------------------------------------------------------- */
+      function getVisible() {
+        return queueItems.filter(function (item) {
+          if (handled.has(item.id)) return false;
+          if (state.source && item.source !== state.source) return false;
+          return true;
+        });
+      }
+
+      function renderSources() {
+        $('#source-grid').innerHTML = SOURCES.map(function (source) {
+          const count = queueItems.filter(function (item) {
+            return !handled.has(item.id) && item.source === source.key;
+          }).length;
+          return '<div class="source-card' + (state.source === source.key ? ' active' : '') + '" data-source="' + source.key + '">' +
+            '<div class="source-top"><span>' + source.label + '</span><span class="source-icon">' + App.icon(source.icon, 16) + '</span></div>' +
+            '<div class="source-value">' + App.fmtNum(count) + '</div>' +
+            '<div class="source-foot">' + source.desc + '</div></div>';
+        }).join('');
+      }
+
+      function cardHTML(item) {
+        const source = SOURCE_MAP[item.source];
+        const checked = state.selected.has(item.id);
+        return '<article class="review-card' + (checked ? ' selected' : '') + '" data-id="' + item.id + '">' +
+          '<div class="review-head">' +
+          '<input class="checkbox" type="checkbox" data-check="' + item.id + '"' + (checked ? ' checked' : '') + ' aria-label="选择该内容">' +
+          '<span class="badge">' + item.targetLabel + '</span>' +
+          App.pill(source.label, source.tone) +
+          '<span class="review-time">' + App.fmtRelative(item.createdAt) + '</span>' +
+          '</div>' +
+          '<div class="review-title">' + esc(item.title) + '</div>' +
+          '<div class="review-preview">' + esc(item.preview) + '</div>' +
+          '<div class="review-meta">' + App.avatarHTML(item.authorName, item.authorId, 24) +
+          '<span>' + esc(item.authorName) + '</span><span>' + esc(item.studentId) + '</span>' +
+          (item.type === 'post' ? '<span class="pill pill-neutral" style="height:20px">#' + esc(item.tagName) + '</span>' : '') +
+          '</div>' +
+          '<div class="review-reason">' + App.icon('alert-triangle', 14) + '<span>触发原因：' + esc(item.reason) + '</span></div>' +
+          '<div class="review-history">' + App.icon('history', 14) + '<span>相似处置：' + esc(item.history) + '</span></div>' +
+          '<div class="review-actions">' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-action="ignore" data-id="' + item.id + '">忽略</button>' +
+          '<button type="button" class="btn btn-danger btn-sm" data-action="reject" data-id="' + item.id + '">驳回</button>' +
+          '<button type="button" class="btn btn-primary btn-sm" data-action="approve" data-id="' + item.id + '">通过</button>' +
+          '</div></article>';
+      }
+
+      function renderStream() {
+        const visible = getVisible();
+        const totalPages = Math.max(1, Math.ceil(visible.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        currentRows = visible.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+
+        $('#review-stream').innerHTML = currentRows.length
+          ? currentRows.map(cardHTML).join('')
+          : '<div class="card">' + App.emptyHTML('审核队列已清空', '当前筛选条件下没有待处理内容', 'check-circle') + '</div>';
+
+        App.renderPagination('#review-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: visible.length,
+          pageSizes: [8, 16, 32],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            state.selected.clear();
+            renderAll();
+          }
+        });
+
+        updateToolbar();
+      }
+
+      function updateToolbar() {
+        $('#review-selected').textContent = state.selected.size;
+        $('#review-batch-approve').disabled = state.selected.size === 0;
+        const allChecked = currentRows.length > 0 && currentRows.every(function (item) { return state.selected.has(item.id); });
+        const someChecked = currentRows.some(function (item) { return state.selected.has(item.id); });
+        const selectAll = $('#review-select-all');
+        selectAll.checked = allChecked;
+        selectAll.indeterminate = !allChecked && someChecked;
+      }
+
+      function renderProgress() {
+        const reviewed = Math.min(TOTAL_TODAY, BASE_REVIEWED + handledCount);
+        const remain = Math.max(TOTAL_TODAY - reviewed, 0);
+        window.Charts.donut('#review-progress-chart', {
+          segments: [
+            { label: '已审核', value: reviewed, color: 'var(--primary)' },
+            { label: '待审核', value: remain, color: 'var(--divider)' }
+          ],
+          centerValue: Math.round(reviewed / TOTAL_TODAY * 100) + '%',
+          centerLabel: '今日进度',
+          legend: false,
+          size: 168,
+          thickness: 16
+        });
+        $('#progress-meta').innerHTML =
+          '<div>已审核<b>' + reviewed + '</b></div>' +
+          '<div>待审核<b>' + remain + '</b></div>' +
+          '<div>通过率<b>96.2%</b></div>';
+      }
+
+      function renderAll() {
+        renderSources();
+        renderStream();
+        renderProgress();
+      }
+
+      /* ---------------------------------------------------------------
+         审核动作
+         --------------------------------------------------------------- */
+      function applyStatus(item, mode) {
+        if (mode === 'approve') {
+          if (item.type === 'post') item.ref.status = 'published';
+          else item.ref.status = 'normal';
+        } else if (mode === 'reject') {
+          if (item.type === 'post') item.ref.status = 'rejected';
+          else item.ref.status = 'hidden';
+        }
+      }
+
+      function finishItem(item, mode) {
+        applyStatus(item, mode);
+        handled.add(item.id);
+        state.selected.delete(item.id);
+        if (mode !== 'ignore') handledCount += 1;
+        App.toast(mode === 'approve' ? '已通过：' + item.title : mode === 'reject' ? '已驳回：' + item.title : '已忽略该条内容', mode === 'reject' ? 'warning' : 'success', 2200);
+        renderAll();
+      }
+
+      function batchApprove() {
+        const items = queueItems.filter(function (item) {
+          return state.selected.has(item.id) && !handled.has(item.id);
+        });
+        if (!items.length) {
+          App.toast('请先选择需要处理的内容', 'warning');
+          return;
+        }
+        items.forEach(function (item) {
+          applyStatus(item, 'approve');
+          handled.add(item.id);
+          handledCount += 1;
+        });
+        state.selected.clear();
+        App.toast('已批量通过 ' + items.length + ' 条内容', 'success');
+        renderAll();
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#source-grid').addEventListener('click', function (event) {
+        const card = event.target.closest('.source-card');
+        if (!card) return;
+        const key = card.getAttribute('data-source');
+        state.source = state.source === key ? '' : key;
+        state.page = 1;
+        state.selected.clear();
+        renderAll();
+      });
+
+      $('#review-stream').addEventListener('change', function (event) {
+        const checkbox = event.target.closest('input[data-check]');
+        if (!checkbox) return;
+        const id = checkbox.getAttribute('data-check');
+        if (checkbox.checked) state.selected.add(id);
+        else state.selected.delete(id);
+        const card = checkbox.closest('.review-card');
+        if (card) card.classList.toggle('selected', checkbox.checked);
+        updateToolbar();
+      });
+
+      $('#review-stream').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const item = queueItems.find(function (entry) { return entry.id === button.getAttribute('data-id'); });
+        if (!item) return;
+        finishItem(item, button.getAttribute('data-action'));
+      });
+
+      $('#review-select-all').addEventListener('change', function () {
+        if (this.checked) currentRows.forEach(function (item) { state.selected.add(item.id); });
+        else currentRows.forEach(function (item) { state.selected.delete(item.id); });
+        $$('#review-stream input[data-check]').forEach(function (checkbox) {
+          checkbox.checked = this.checked;
+        }, this);
+        $$('#review-stream .review-card').forEach(function (card) {
+          card.classList.toggle('selected', this.checked);
+        }, this);
+        updateToolbar();
+      });
+
+      $('#review-clear').addEventListener('click', function () {
+        state.selected.clear();
+        renderStream();
+      });
+
+      $('#review-batch-approve').addEventListener('click', batchApprove);
+
+      $('#refresh-btn').addEventListener('click', function () {
+        renderAll();
+        App.toast('审核队列已刷新', 'success');
+      });
+
+      renderAll();
+    })();
+  </script>
+</body>
+</html>

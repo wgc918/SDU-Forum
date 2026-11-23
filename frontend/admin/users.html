@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户列表 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="users">
+    <!--
+      ======================================================================
+      页面：用户列表
+      ----------------------------------------------------------------------
+      数据字段（USERS）：
+        id / studentId / nickname / realName / college / major / grade /
+        role(user|moderator|admin) / status(active|muted|banned|pending) /
+        postCount / commentCount / reputation / verified / email / bio /
+        registerAt / lastActiveAt
+      关联数据：POSTS（最近发帖）、BANS（封禁记录）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/users?page=1&pageSize=20&keyword=&college=&status=&role=&verified=
+        GET    /api/admin/users/{id}
+        POST   /api/admin/users/{id}/ban     { type, reason, detail, durationDays }
+        POST   /api/admin/users/{id}/unban
+        POST   /api/admin/users/batch-ban    { ids:[], type, reason, durationDays }
+        GET    /api/admin/users/export?keyword=&status=
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">用户列表</h1>
+        <p class="page-desc">管理论坛注册用户，查看账号资料、社区行为与封禁状态</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="export-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+          </svg>
+          导出用户
+        </button>
+        <button type="button" class="btn btn-primary" id="refresh-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+            <path d="M8 16H3v5"/>
+          </svg>
+          刷新数据
+        </button>
+      </div>
+    </div>
+
+    <!-- KPI -->
+    <div class="kpi-grid" id="kpi-grid"></div>
+
+    <!-- 筛选栏 -->
+    <div class="card filter-card">
+      <div class="filter-field wide">
+        <label class="filter-label" for="filter-keyword">关键词</label>
+        <input class="control" id="filter-keyword" type="text" placeholder="昵称 / 真实姓名 / 学号 / 邮箱">
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="filter-college">学院</label>
+        <select class="select" id="filter-college">
+          <option value="">全部学院</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="filter-status">账号状态</label>
+        <select class="select" id="filter-status">
+          <option value="">全部状态</option>
+          <option value="active">正常</option>
+          <option value="muted">禁言中</option>
+          <option value="banned">已封禁</option>
+          <option value="pending">待激活</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="filter-role">角色</label>
+        <select class="select" id="filter-role">
+          <option value="">全部角色</option>
+          <option value="user">普通用户</option>
+          <option value="moderator">版主</option>
+          <option value="admin">管理员</option>
+        </select>
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-primary" id="search-btn">查询</button>
+        <button type="button" class="btn btn-secondary" id="reset-btn">重置</button>
+        <button type="button" class="btn btn-ghost" id="advanced-btn">高级筛选</button>
+      </div>
+
+      <div class="filter-advanced" id="advanced-panel" hidden>
+        <div class="filter-field">
+          <label class="filter-label" for="filter-verified">实名认证</label>
+          <select class="select" id="filter-verified">
+            <option value="">全部</option>
+            <option value="true">已认证</option>
+            <option value="false">未认证</option>
+          </select>
+        </div>
+        <div class="filter-field">
+          <label class="filter-label" for="filter-date-from">注册时间（起）</label>
+          <input class="control" id="filter-date-from" type="date">
+        </div>
+        <div class="filter-field">
+          <label class="filter-label" for="filter-date-to">注册时间（止）</label>
+          <input class="control" id="filter-date-to" type="date">
+        </div>
+      </div>
+    </div>
+
+    <!-- 表格 -->
+    <div class="card table-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">用户列表</div>
+          <div class="card-sub" id="users-count">共 0 条</div>
+        </div>
+        <div class="card-head-side">
+          <button type="button" class="icon-btn" id="column-settings" title="列设置" aria-label="列设置">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/>
+              <line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
+            </svg>
+          </button>
+          <button type="button" class="icon-btn" id="table-refresh" title="刷新" aria-label="刷新">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+              <path d="M21 3v5h-5"/>
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+              <path d="M8 16H3v5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="batch-bar" id="users-batch" hidden>
+        <span>已选择 <b class="batch-count" id="batch-count">0</b> 项</span>
+        <div class="batch-actions">
+          <button type="button" class="btn btn-danger btn-sm" id="batch-ban">批量封禁</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="batch-clear">清除选择</button>
+        </div>
+      </div>
+
+      <div id="users-table"></div>
+      <div id="users-pagination"></div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      const $ = App.$;
+      const $$ = App.$$;
+      const el = App.el;
+      const esc = App.escapeHtml;
+
+      const DICT = window.DICT;
+      const STATUS_TONE = { active: 'success', muted: 'warning', banned: 'danger', pending: 'info' };
+      const ROLE_TONE = { user: 'neutral', moderator: 'warning', admin: 'info' };
+      const ROLE_LABEL = { user: '普通用户', moderator: '版主', admin: '管理员' };
+
+      const state = {
+        keyword: '',
+        college: '',
+        status: '',
+        role: '',
+        verified: '',
+        dateFrom: '',
+        dateTo: '',
+        page: 1,
+        pageSize: 20,
+        selected: new Set()
+      };
+
+      let currentDrawer = null;
+      let filteredCache = [];
+
+      /* ---------------------------------------------------------------
+         初始化筛选下拉
+         --------------------------------------------------------------- */
+      const collegeSelect = $('#filter-college');
+      const colleges = Array.from(new Set(window.USERS.map(function (user) { return user.college; }))).sort();
+      colleges.forEach(function (name) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        collegeSelect.appendChild(option);
+      });
+
+      const urlKeyword = new URLSearchParams(window.location.search).get('keyword');
+      if (urlKeyword) {
+        state.keyword = urlKeyword;
+        $('#filter-keyword').value = urlKeyword;
+      }
+
+      /* ---------------------------------------------------------------
+         数据筛选
+         --------------------------------------------------------------- */
+      function getFiltered() {
+        const keyword = state.keyword.trim().toLowerCase();
+        const from = state.dateFrom ? new Date(state.dateFrom + 'T00:00:00').getTime() : null;
+        const to = state.dateTo ? new Date(state.dateTo + 'T23:59:59').getTime() : null;
+
+        return window.USERS.filter(function (user) {
+          if (keyword) {
+            const haystack = [user.nickname, user.realName, user.studentId, user.college, user.major, user.email].join(' ').toLowerCase();
+            if (haystack.indexOf(keyword) === -1) return false;
+          }
+          if (state.college && user.college !== state.college) return false;
+          if (state.status && user.status !== state.status) return false;
+          if (state.role && user.role !== state.role) return false;
+          if (state.verified && String(user.verified) !== state.verified) return false;
+          if (from && user.registerAt < from) return false;
+          if (to && user.registerAt > to) return false;
+          return true;
+        }).sort(function (a, b) { return b.registerAt - a.registerAt; });
+      }
+
+      /* ---------------------------------------------------------------
+         KPI
+         --------------------------------------------------------------- */
+      function renderKpis() {
+        const total = window.USERS.length;
+        const month = window.USERS.filter(function (user) { return user.registerAt >= Date.now() - 30 * 86400000; }).length;
+        const prevMonth = window.USERS.filter(function (user) {
+          return user.registerAt >= Date.now() - 60 * 86400000 && user.registerAt < Date.now() - 30 * 86400000;
+        }).length;
+        const activeWeek = window.USERS.filter(function (user) {
+          return user.status === 'active' && user.lastActiveAt >= Date.now() - 7 * 86400000;
+        }).length;
+        const banned = window.USERS.filter(function (user) { return user.status === 'banned'; }).length;
+        const muted = window.USERS.filter(function (user) { return user.status === 'muted'; }).length;
+        const pending = window.USERS.filter(function (user) { return user.status === 'pending'; }).length;
+        const monthDelta = prevMonth > 0 ? ((month - prevMonth) / prevMonth * 100) : 0;
+        const activeRate = total ? (activeWeek / total * 100) : 0;
+
+        $('#kpi-grid').innerHTML =
+          kpiCard({
+            label: '用户总数', value: App.fmtNum(total), icon: 'users',
+            foot: '<span class="delta up">↑ ' + App.fmtNum(window.STATS.newUsersWeek) + '</span> 人 · 近 7 日新注册'
+          }) +
+          kpiCard({
+            label: '本月新增', value: App.fmtNum(month), icon: 'trending-up',
+            foot: '<span class="delta ' + (monthDelta >= 0 ? 'up' : 'down') + '">' + (monthDelta >= 0 ? '↑' : '↓') +
+              ' ' + Math.abs(monthDelta).toFixed(1) + '%</span> 较上月'
+          }) +
+          kpiCard({
+            label: '近 7 日活跃', value: App.fmtNum(activeWeek), icon: 'chart',
+            foot: '<span class="delta up">' + activeRate.toFixed(1) + '%</span> 用户活跃率'
+          }) +
+          kpiCard({
+            label: '封禁中', value: App.fmtNum(banned), icon: 'ban',
+            tone: { bg: 'var(--danger-soft)', fg: 'var(--danger)' },
+            foot: '禁言中 ' + App.fmtNum(muted) + ' 人 · 待激活 ' + App.fmtNum(pending) + ' 人'
+          });
+      }
+
+      function kpiCard(opts) {
+        return '<div class="card kpi-card">' +
+          '<div class="kpi-top"><div class="kpi-label">' + esc(opts.label) + '</div>' +
+          '<div class="kpi-icon"' + (opts.tone ? ' style="background:' + opts.tone.bg + ';color:' + opts.tone.fg + '"' : '') + '>' +
+          App.icon(opts.icon, 18) + '</div></div>' +
+          '<div class="kpi-value">' + opts.value + '</div>' +
+          '<div class="kpi-foot">' + opts.foot + '</div></div>';
+      }
+
+      /* ---------------------------------------------------------------
+         表格列
+         --------------------------------------------------------------- */
+      function statusCell(user) {
+        return App.pill(DICT.userStatus[user.status] || user.status, STATUS_TONE[user.status] || 'neutral', true);
+      }
+
+      function roleCell(user) {
+        return App.pill(ROLE_LABEL[user.role] || user.role, ROLE_TONE[user.role] || 'neutral');
+      }
+
+      const columns = [
+        {
+          title: '用户', width: '220px',
+          cell: function (user) {
+            return '<div class="table-user">' + App.avatarHTML(user.nickname, user.id, 32) +
+              '<div style="min-width:0"><div class="cell-main">' + esc(user.nickname) + '</div>' +
+              '<div class="cell-sub">' + esc(user.studentId) + '</div></div></div>';
+          }
+        },
+        {
+          title: '学院 / 专业', width: '230px',
+          cell: function (user) {
+            return '<div class="cell-main" style="font-weight:400">' + esc(user.college) + '</div>' +
+              '<div class="cell-sub">' + esc(user.major) + '</div>';
+          }
+        },
+        { title: '角色', width: '96px', cell: roleCell },
+        { title: '状态', width: '104px', cell: statusCell },
+        {
+          title: '发帖', width: '72px', className: 'num-cell text-right',
+          cell: function (user) { return '<span class="tabular">' + App.fmtNum(user.postCount) + '</span>'; }
+        },
+        {
+          title: '评论', width: '72px', className: 'num-cell text-right',
+          cell: function (user) { return '<span class="tabular">' + App.fmtNum(user.commentCount) + '</span>'; }
+        },
+        {
+          title: '最近活跃', width: '130px',
+          cell: function (user) {
+            return '<div class="cell-main" style="font-weight:400">' + App.fmtRelative(user.lastActiveAt) + '</div>' +
+              '<div class="cell-sub">' + App.fmtDate(user.lastActiveAt, 'MM-DD HH:mm') + '</div>';
+          }
+        },
+        {
+          title: '操作', align: 'right', width: '96px',
+          cell: function (user) {
+            const banAction = user.status === 'banned'
+              ? '<button type="button" class="icon-btn" data-action="unban" title="解除封禁" aria-label="解除封禁">' + App.icon('user-check', 16) + '</button>'
+              : '<button type="button" class="icon-btn danger" data-action="ban" title="封禁用户" aria-label="封禁用户">' + App.icon('ban', 16) + '</button>';
+            return '<div class="table-actions">' +
+              '<button type="button" class="icon-btn" data-action="view" title="查看详情" aria-label="查看详情">' + App.icon('eye', 16) + '</button>' +
+              banAction + '</div>';
+          }
+        }
+      ];
+
+      /* ---------------------------------------------------------------
+         渲染
+         --------------------------------------------------------------- */
+      function renderAll() {
+        filteredCache = getFiltered();
+        const totalPages = Math.max(1, Math.ceil(filteredCache.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const start = (state.page - 1) * state.pageSize;
+        const rows = filteredCache.slice(start, start + state.pageSize);
+
+        $('#users-count').textContent = '共 ' + App.fmtNum(filteredCache.length) + ' 条' +
+          (filteredCache.length !== window.USERS.length ? '（全部用户 ' + App.fmtNum(window.USERS.length) + ' 条）' : '');
+
+        App.renderTable('#users-table', columns, rows, {
+          selectable: true,
+          selected: state.selected,
+          rowKey: 'id',
+          emptyText: '未找到匹配的用户',
+          emptyDesc: '请调整筛选条件后重试',
+          emptyIcon: 'users',
+          onRowClick: openUserDetail,
+          onSelectionChange: updateBatchBar
+        });
+
+        App.renderPagination('#users-pagination', {
+          page: state.page,
+          pageSize: state.pageSize,
+          total: filteredCache.length,
+          pageSizes: [10, 20, 50],
+          onChange: function (page, pageSize) {
+            state.page = page;
+            state.pageSize = pageSize;
+            renderAll();
+          }
+        });
+
+        renderKpis();
+        updateBatchBar();
+      }
+
+      function updateBatchBar() {
+        const bar = $('#users-batch');
+        bar.hidden = state.selected.size === 0;
+        $('#batch-count').textContent = state.selected.size;
+      }
+
+      /* ---------------------------------------------------------------
+         用户详情抽屉
+         --------------------------------------------------------------- */
+      function openUserDetail(user) {
+        const recentPosts = window.POSTS
+          .filter(function (post) { return post.authorId === user.id; })
+          .sort(function (a, b) { return b.createdAt - a.createdAt; })
+          .slice(0, 4);
+
+        const postsHtml = recentPosts.length
+          ? '<div class="mini-list">' + recentPosts.map(function (post) {
+              return '<div class="mini-item"><div style="min-width:0">' +
+                '<div class="mini-title">' + esc(post.title) + '</div>' +
+                '<div class="mini-meta">' + esc(post.tagName) + ' · ' + App.fmtRelative(post.createdAt) +
+                ' · ' + App.fmtNum(post.viewCount) + ' 次浏览</div></div>' +
+                '<div class="mini-side">' + App.pill(DICT.postStatus[post.status], post.status === 'published' ? 'success' : 'neutral') + '</div></div>';
+            }).join('') + '</div>'
+          : App.emptyHTML('暂无发帖记录', '该用户还没有发布过帖子', 'file-text');
+
+        const html = '<div class="profile-head">' +
+          App.avatarHTML(user.nickname, user.id, 56) +
+          '<div style="min-width:0">' +
+          '<div class="profile-name">' + esc(user.nickname) +
+          (user.verified ? ' <span class="pill pill-info" style="height:20px;font-size:11px">已实名</span>' : '') +
+          '</div>' +
+          '<div class="profile-meta">' + esc(user.realName) + ' · ' + esc(user.studentId) + '</div>' +
+          '<div class="profile-tags">' + roleCell(user) + statusCell(user) + '</div>' +
+          '</div></div>' +
+
+          '<div class="stat-row">' +
+          '<div><div class="num">' + App.fmtNum(user.postCount) + '</div><div class="lbl">发帖</div></div>' +
+          '<div><div class="num">' + App.fmtNum(user.commentCount) + '</div><div class="lbl">评论</div></div>' +
+          '<div><div class="num">' + App.fmtNum(user.reputation) + '</div><div class="lbl">社区声望</div></div>' +
+          '</div>' +
+
+          '<div class="section-title">账号资料</div>' +
+          '<div class="info-grid">' +
+          infoItem('学院', user.college) +
+          infoItem('专业', user.major) +
+          infoItem('年级', user.grade) +
+          infoItem('实名认证', user.verified ? '已认证' : '未认证') +
+          infoItem('邮箱', user.email) +
+          infoItem('注册时间', App.fmtDate(user.registerAt, 'YYYY-MM-DD HH:mm')) +
+          infoItem('最近活跃', App.fmtDate(user.lastActiveAt, 'YYYY-MM-DD HH:mm')) +
+          infoItem('用户 ID', user.id) +
+          '</div>' +
+
+          '<div class="section-title">个人简介</div>' +
+          '<div class="text-md muted" style="line-height:1.7">' + esc(user.bio || '该用户暂未填写个人简介。') + '</div>' +
+
+          '<div class="section-title">最近发帖 <span class="count">共 ' + App.fmtNum(user.postCount) + ' 篇</span></div>' +
+          postsHtml;
+
+        const footer = el('div', { class: 'flex gap-2' });
+        const closeBtn = el('button', { type: 'button', class: 'btn btn-secondary', text: '关闭' });
+        const actionBtn = el('button', {
+          type: 'button',
+          class: user.status === 'banned' ? 'btn btn-primary' : 'btn btn-danger',
+          text: user.status === 'banned' ? '解除封禁' : '封禁账号'
+        });
+        closeBtn.addEventListener('click', function () { if (currentDrawer) currentDrawer.close(); });
+        actionBtn.addEventListener('click', function () {
+          if (user.status === 'banned') openUnban(user);
+          else openBanModal([user]);
+        });
+        footer.appendChild(closeBtn);
+        footer.appendChild(actionBtn);
+
+        currentDrawer = App.drawer({
+          title: '用户详情',
+          subtitle: 'UID ' + user.id.toUpperCase(),
+          body: html,
+          footer: footer,
+          width: 480,
+          onClose: function () { currentDrawer = null; }
+        });
+      }
+
+      function infoItem(label, value) {
+        return '<div class="info-item"><div class="info-label">' + esc(label) + '</div>' +
+          '<div class="info-value">' + esc(value) + '</div></div>';
+      }
+
+      /* ---------------------------------------------------------------
+         封禁 / 解封
+         --------------------------------------------------------------- */
+      function openBanModal(targets) {
+        const isBatch = targets.length > 1;
+        const body = '<div class="form-stack">' +
+          (isBatch
+            ? '<div class="login-hint" style="margin:0">即将对 <b>' + targets.length + '</b> 个账号执行封禁，请确认操作范围。</div>'
+            : '<div class="text-md muted">目标账号：<b>' + esc(targets[0].nickname) + '</b>（' + esc(targets[0].studentId) + '）</div>') +
+          '<div class="form-grid">' +
+          '<div class="field"><label class="label" for="ban-type">封禁范围</label>' +
+          '<select class="select" id="ban-type">' +
+          '<option value="all">全站封禁</option>' +
+          '<option value="login">禁止登录</option>' +
+          '<option value="post">禁止发帖</option>' +
+          '<option value="comment">禁止评论</option>' +
+          '</select></div>' +
+          '<div class="field"><label class="label" for="ban-duration">封禁时长</label>' +
+          '<select class="select" id="ban-duration">' +
+          '<option value="1">1 天</option>' +
+          '<option value="7" selected>7 天</option>' +
+          '<option value="30">30 天</option>' +
+          '<option value="0">永久封禁</option>' +
+          '</select></div>' +
+          '</div>' +
+          '<div class="field"><label class="label" for="ban-reason">封禁原因</label>' +
+          '<select class="select" id="ban-reason">' +
+          '<option>发布广告引流内容</option>' +
+          '<option>恶意辱骂他人</option>' +
+          '<option>发布不实信息</option>' +
+          '<option>恶意刷屏灌水</option>' +
+          '<option>侵犯他人隐私</option>' +
+          '<option>其他违规行为</option>' +
+          '</select></div>' +
+          '<div class="field"><label class="label" for="ban-detail">补充说明</label>' +
+          '<textarea class="control" id="ban-detail" placeholder="填写处理依据、证据编号或备注信息（选填）"></textarea></div>' +
+          '<div class="help-text">封禁操作会同步写入操作日志，并在封禁管理中生成一条记录。</div>' +
+          '</div>';
+
+        App.modal({
+          title: isBatch ? '批量封禁账号' : '封禁用户',
+          desc: isBatch ? '该操作会立即限制所选账号的登录或互动权限' : '封禁后该用户将无法正常使用论坛功能',
+          body: body,
+          width: 560,
+          danger: true,
+          confirmText: '确认封禁',
+          onConfirm: function () {
+            const type = $('#ban-type').value;
+            const duration = Number($('#ban-duration').value);
+            const reason = $('#ban-reason').value;
+            const detail = $('#ban-detail').value.trim();
+            const startAt = Date.now();
+            const endAt = duration === 0 ? null : startAt + duration * 86400000;
+
+            targets.forEach(function (user) {
+              user.status = 'banned';
+              window.BANS.unshift({
+                id: 'b' + (window.BANS.length + 1),
+                userId: user.id,
+                userName: user.nickname,
+                studentId: user.studentId,
+                type: type,
+                reason: reason,
+                detail: detail || '管理员通过用户列表执行封禁操作。',
+                operator: '超级管理员',
+                startAt: startAt,
+                endAt: endAt,
+                duration: duration === 0 ? '永久' : duration + ' 天',
+                status: 'active',
+                evidence: '后台手动封禁',
+                createdAt: startAt
+              });
+            });
+
+            state.selected.clear();
+            if (currentDrawer) currentDrawer.close();
+            App.toast(isBatch ? '已封禁 ' + targets.length + ' 个账号' : '已封禁账号「' + targets[0].nickname + '」', 'success');
+            renderAll();
+          }
+        });
+      }
+
+      function openUnban(user) {
+        App.modal({
+          title: '解除封禁',
+          desc: '解除后该账号将恢复正常的登录与发帖权限，是否继续？',
+          body: '<div class="text-md muted">目标账号：<b>' + esc(user.nickname) + '</b>（' + esc(user.studentId) + '）</div>',
+          confirmText: '解除封禁',
+          onConfirm: function () {
+            user.status = 'active';
+            user.lastActiveAt = Date.now();
+            const activeBan = window.BANS.find(function (ban) {
+              return ban.userId === user.id && ban.status === 'active';
+            });
+            if (activeBan) activeBan.status = 'revoked';
+            if (currentDrawer) currentDrawer.close();
+            App.toast('已解除账号「' + user.nickname + '」的封禁', 'success');
+            renderAll();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         表格操作事件（事件委托）
+         --------------------------------------------------------------- */
+      $('#users-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const tr = button.closest('tr');
+        const key = tr ? tr.getAttribute('data-key') : null;
+        const user = window.USERS.find(function (item) { return item.id === key; });
+        if (!user) return;
+
+        const action = button.getAttribute('data-action');
+        if (action === 'view') openUserDetail(user);
+        else if (action === 'ban') openBanModal([user]);
+        else if (action === 'unban') openUnban(user);
+      });
+
+      /* ---------------------------------------------------------------
+         筛选交互
+         --------------------------------------------------------------- */
+      function syncStateFromInputs() {
+        state.keyword = $('#filter-keyword').value;
+        state.college = $('#filter-college').value;
+        state.status = $('#filter-status').value;
+        state.role = $('#filter-role').value;
+        state.verified = $('#filter-verified').value;
+        state.dateFrom = $('#filter-date-from').value;
+        state.dateTo = $('#filter-date-to').value;
+        state.page = 1;
+      }
+
+      const applyFilters = function () {
+        syncStateFromInputs();
+        state.selected.clear();
+        renderAll();
+      };
+
+      $('#filter-keyword').addEventListener('input', App.debounce(function () {
+        syncStateFromInputs();
+        state.selected.clear();
+        renderAll();
+      }, 300));
+
+      ['#filter-college', '#filter-status', '#filter-role', '#filter-verified', '#filter-date-from', '#filter-date-to'].forEach(function (selector) {
+        $(selector).addEventListener('change', applyFilters);
+      });
+
+      $('#search-btn').addEventListener('click', applyFilters);
+
+      $('#reset-btn').addEventListener('click', function () {
+        ['#filter-keyword', '#filter-college', '#filter-status', '#filter-role', '#filter-verified', '#filter-date-from', '#filter-date-to'].forEach(function (selector) {
+          $(selector).value = '';
+        });
+        state.keyword = '';
+        state.college = '';
+        state.status = '';
+        state.role = '';
+        state.verified = '';
+        state.dateFrom = '';
+        state.dateTo = '';
+        state.page = 1;
+        state.selected.clear();
+        renderAll();
+        App.toast('筛选条件已重置', 'info');
+      });
+
+      $('#advanced-btn').addEventListener('click', function () {
+        const panel = $('#advanced-panel');
+        const willShow = panel.hidden;
+        panel.hidden = !willShow;
+        this.textContent = willShow ? '收起筛选' : '高级筛选';
+      });
+
+      /* ---------------------------------------------------------------
+         批量操作
+         --------------------------------------------------------------- */
+      $('#batch-ban').addEventListener('click', function () {
+        const targets = window.USERS.filter(function (user) { return state.selected.has(user.id); });
+        if (!targets.length) {
+          App.toast('请先选择需要封禁的账号', 'warning');
+          return;
+        }
+        openBanModal(targets);
+      });
+
+      $('#batch-clear').addEventListener('click', function () {
+        state.selected.clear();
+        renderAll();
+      });
+
+      /* ---------------------------------------------------------------
+         导出 / 刷新
+         --------------------------------------------------------------- */
+      function exportCsv() {
+        const rows = filteredCache.length ? filteredCache : getFiltered();
+        if (!rows.length) {
+          App.toast('当前筛选结果为空，无法导出', 'warning');
+          return;
+        }
+        const header = ['用户ID', '学号', '昵称', '真实姓名', '学院', '专业', '年级', '角色', '状态', '发帖数', '评论数', '注册时间', '最近活跃'];
+        const lines = [header].concat(rows.map(function (user) {
+          return [
+            user.id, user.studentId, user.nickname, user.realName, user.college, user.major, user.grade,
+            ROLE_LABEL[user.role], DICT.userStatus[user.status], user.postCount, user.commentCount,
+            App.fmtDate(user.registerAt, 'YYYY-MM-DD HH:mm'), App.fmtDate(user.lastActiveAt, 'YYYY-MM-DD HH:mm')
+          ];
+        }));
+        const csv = lines.map(function (line) {
+          return line.map(function (cell) {
+            return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"';
+          }).join(',');
+        }).join('\r\n');
+
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'sdu-users-' + App.fmtDate(Date.now(), 'YYYYMMDD') + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+        App.toast('已导出 ' + App.fmtNum(rows.length) + ' 条用户数据', 'success');
+      }
+
+      function refreshData() {
+        renderAll();
+        App.toast('用户数据已刷新', 'success');
+      }
+
+      $('#export-btn').addEventListener('click', exportCsv);
+      $('#refresh-btn').addEventListener('click', refreshData);
+      $('#table-refresh').addEventListener('click', refreshData);
+      $('#column-settings').addEventListener('click', function () {
+        App.toast('列设置功能正在建设中', 'info');
+      });
+
+      /* ---------------------------------------------------------------
+         顶栏全局搜索
+         --------------------------------------------------------------- */
+      window.addEventListener('admin:global-search', function (event) {
+        state.keyword = event.detail || '';
+        state.page = 1;
+        $('#filter-keyword').value = state.keyword;
+        state.selected.clear();
+        renderAll();
+      });
+
+      /* ---------------------------------------------------------------
+         首次渲染
+         --------------------------------------------------------------- */
+      renderAll();
+      if (state.keyword) {
+        App.toast('已按关键词「' + state.keyword + '」筛选用户', 'info');
+      }
+    })();
+  </script>
+</body>
+</html>

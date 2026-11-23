@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>评论管理 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="comments">
+    <!--
+      ======================================================================
+      页面：评论管理
+      ----------------------------------------------------------------------
+      数据字段（COMMENTS / POSTS / REPORTS）：
+        comments: id / postId / postTitle / authorId / authorName / content /
+                  createdAt / likeCount / status(normal|hidden|reviewing) / reportCount
+        posts: id / title / authorName / commentCount
+        reports: targetId / reasonType（用于展示违规原因）
+      页面派生：帖子线程、一级评论、二级回复（按评论时间每 3 条构造一组）
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/comments/threads?keyword=
+        GET    /api/admin/comments?postId=&status=&keyword=
+        DELETE /api/admin/comments/{id}
+        POST   /api/admin/comments/batch-delete { ids:[] }
+        POST   /api/admin/comments/{id}/restore
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">评论管理</h1>
+        <p class="page-desc">按帖子线程查看评论树，处理被举报与已删除评论</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="refresh-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+            <path d="M8 16H3v5"/>
+          </svg>
+          刷新数据
+        </button>
+      </div>
+    </div>
+
+    <!-- 顶部筛选 -->
+    <div class="card filter-card">
+      <div class="filter-field wide">
+        <label class="filter-label" for="filter-keyword">关键词</label>
+        <input class="control" id="filter-keyword" type="text" placeholder="搜索评论内容、作者或帖子标题">
+      </div>
+      <div class="filter-field">
+        <label class="filter-label" for="filter-status">评论状态</label>
+        <select class="select" id="filter-status">
+          <option value="">全部</option>
+          <option value="reported">被举报</option>
+          <option value="deleted">已删除</option>
+        </select>
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-secondary" id="reset-btn">重置</button>
+      </div>
+    </div>
+
+    <div class="comments-layout">
+      <!-- 左：帖子线程 -->
+      <aside class="card thread-panel">
+        <div class="card-head">
+          <div>
+            <div class="card-title">帖子线程</div>
+            <div class="card-sub" id="thread-sub">共 0 个线程</div>
+          </div>
+        </div>
+        <div class="thread-list" id="thread-list"></div>
+      </aside>
+
+      <!-- 右：评论树 -->
+      <section class="card comments-panel">
+        <div class="card-head">
+          <div style="min-width:0">
+            <div class="card-title" id="thread-title" style="max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">请选择帖子线程</div>
+            <div class="card-sub" id="thread-meta">—</div>
+          </div>
+          <div class="card-head-side">
+            <span class="selected-count" id="comment-selected">已选 0 条</span>
+            <button type="button" class="btn btn-danger btn-sm" id="batch-delete" disabled>批量删除</button>
+          </div>
+        </div>
+
+        <div class="comments-toolbar">
+          <label class="checkbox-label">
+            <input class="checkbox" type="checkbox" id="comment-select-all">
+            全选当前评论
+          </label>
+          <span class="spacer"></span>
+          <span class="text-sm muted-3" id="comment-total">共 0 条评论</span>
+        </div>
+
+        <div class="comment-tree" id="comment-tree"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('comments');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+
+      const state = {
+        keyword: '',
+        status: '',
+        postId: null,
+        selected: new Set()
+      };
+
+      let currentComments = [];
+
+      /* ---------------------------------------------------------------
+         构造线程
+         --------------------------------------------------------------- */
+      const threads = window.POSTS.map(function (post) {
+        const comments = window.COMMENTS.filter(function (comment) {
+          return comment.postId === post.id;
+        }).sort(function (a, b) { return a.createdAt - b.createdAt; });
+        return {
+          post: post,
+          comments: comments,
+          latestAt: comments.length ? comments[comments.length - 1].createdAt : post.createdAt
+        };
+      }).filter(function (thread) {
+        return thread.comments.length > 0;
+      }).sort(function (a, b) {
+        return b.comments.length - a.comments.length || b.latestAt - a.latestAt;
+      });
+
+      function getVisibleThreads() {
+        const keyword = state.keyword.trim().toLowerCase();
+        if (!keyword) return threads;
+        return threads.filter(function (thread) {
+          if ((thread.post.title + ' ' + thread.post.authorName).toLowerCase().indexOf(keyword) !== -1) return true;
+          return thread.comments.some(function (comment) {
+            return (comment.content + ' ' + comment.authorName).toLowerCase().indexOf(keyword) !== -1;
+          });
+        });
+      }
+
+      function currentThread() {
+        return threads.find(function (thread) { return thread.post.id === state.postId; }) || null;
+      }
+
+      function getComments() {
+        const thread = currentThread();
+        if (!thread) return [];
+        const keyword = state.keyword.trim().toLowerCase();
+        return thread.comments.filter(function (comment) {
+          if (state.status === 'reported' && comment.reportCount <= 0) return false;
+          if (state.status === 'deleted' && comment.status !== 'hidden') return false;
+          if (keyword) {
+            const haystack = (comment.content + ' ' + comment.authorName).toLowerCase();
+            if (haystack.indexOf(keyword) === -1) return false;
+          }
+          return true;
+        });
+      }
+
+      function reportReason(comment) {
+        const report = window.REPORTS.find(function (item) { return item.targetId === comment.id; });
+        return report ? report.reasonType : '用户举报';
+      }
+
+      function ensureSelection() {
+        const visible = getVisibleThreads();
+        if (!visible.length) {
+          state.postId = null;
+          return;
+        }
+        const exists = visible.some(function (thread) { return thread.post.id === state.postId; });
+        if (!exists) state.postId = visible[0].post.id;
+      }
+
+      /* ---------------------------------------------------------------
+         渲染线程列表
+         --------------------------------------------------------------- */
+      function renderThreads() {
+        const visible = getVisibleThreads();
+        $('#thread-sub').textContent = '共 ' + App.fmtNum(visible.length) + ' 个线程';
+
+        if (!visible.length) {
+          $('#thread-list').innerHTML = App.emptyHTML('没有匹配的线程', '请调整关键词后重试', 'comment');
+          return;
+        }
+
+        $('#thread-list').innerHTML = visible.map(function (thread) {
+          return '<div class="thread-card' + (thread.post.id === state.postId ? ' active' : '') +
+            '" data-post-id="' + thread.post.id + '">' +
+            '<div class="thread-title">' + esc(thread.post.title) + '</div>' +
+            '<div class="thread-meta"><span class="count">' + App.fmtNum(thread.comments.length) + ' 条评论</span>' +
+            '<span>·</span><span>' + App.fmtRelative(thread.latestAt) + '</span></div></div>';
+        }).join('');
+      }
+
+      /* ---------------------------------------------------------------
+         渲染评论树
+         --------------------------------------------------------------- */
+      function commentHTML(comment, isReply, parentName) {
+        const reported = comment.reportCount > 0;
+        const deleted = comment.status === 'hidden';
+        const checked = state.selected.has(comment.id);
+        const reason = reported ? reportReason(comment) : '';
+
+        return '<div class="comment-item' + (isReply ? ' comment-reply' : '') +
+          (reported ? ' reported' : '') + (deleted ? ' comment-deleted' : '') +
+          (checked ? ' selected' : '') +
+          '" data-id="' + comment.id + '">' +
+          '<label class="comment-check"><input type="checkbox" class="checkbox" data-check="' + comment.id + '"' +
+          (checked ? ' checked' : '') + ' aria-label="选择评论"></label>' +
+          App.avatarHTML(comment.authorName, comment.authorId, isReply ? 24 : 32) +
+          '<div class="comment-main">' +
+          '<div class="comment-head">' +
+          '<span class="comment-author">' + esc(comment.authorName) + '</span>' +
+          '<span>' + App.fmtRelative(comment.createdAt) + '</span>' +
+          (reported ? '<span class="comment-report-tag">举报：' + esc(reason) + '</span>' : '') +
+          (deleted ? App.pill('已删除', 'danger') : '') +
+          (comment.status === 'reviewing' ? App.pill('审核中', 'warning') : '') +
+          '</div>' +
+          '<div class="comment-content">' +
+          (isReply && parentName ? '<span class="reply-prefix">回复 @' + esc(parentName) + '：</span>' : '') +
+          esc(comment.content) + '</div>' +
+          '<div class="comment-actions">' +
+          '<span>' + App.fmtNum(comment.likeCount) + ' 点赞</span>' +
+          '<span>' + App.fmtNum(comment.reportCount) + ' 次举报</span>' +
+          '<button type="button" data-action="' + (deleted ? 'restore' : 'delete') + '" data-id="' + comment.id + '"' +
+          (deleted ? '' : ' class="danger"') + '>' + (deleted ? '恢复' : '删除') + '</button>' +
+          '</div></div></div>';
+      }
+
+      function renderComments() {
+        const thread = currentThread();
+        const all = getComments();
+        currentComments = all;
+
+        if (!thread) {
+          $('#thread-title').textContent = '请选择帖子线程';
+          $('#thread-meta').textContent = '—';
+          $('#comment-total').textContent = '共 0 条评论';
+          $('#comment-tree').innerHTML = App.emptyHTML('暂无评论数据', '请从左侧选择一个帖子线程', 'comment');
+          updateToolbar();
+          return;
+        }
+
+        $('#thread-title').textContent = thread.post.title;
+        const reportedCount = thread.comments.filter(function (comment) { return comment.reportCount > 0; }).length;
+        const deletedCount = thread.comments.filter(function (comment) { return comment.status === 'hidden'; }).length;
+        $('#thread-meta').textContent = '共 ' + thread.comments.length + ' 条评论 · 被举报 ' + reportedCount +
+          ' 条 · 已删除 ' + deletedCount + ' 条 · 作者 ' + thread.post.authorName;
+        $('#comment-total').textContent = '当前展示 ' + all.length + ' 条评论';
+
+        if (!all.length) {
+          $('#comment-tree').innerHTML = App.emptyHTML('没有匹配的评论', '请调整筛选条件后重试', 'comment');
+          updateToolbar();
+          return;
+        }
+
+        const groups = [];
+        let current = null;
+        all.forEach(function (comment, index) {
+          if (index % 3 === 0 || !current) {
+            current = { root: comment, replies: [] };
+            groups.push(current);
+          } else {
+            current.replies.push(comment);
+          }
+        });
+
+        $('#comment-tree').innerHTML = groups.map(function (group) {
+          return '<div class="comment-block">' +
+            commentHTML(group.root, false, '') +
+            (group.replies.length
+              ? '<div class="comment-children">' + group.replies.map(function (reply) {
+                  return commentHTML(reply, true, group.root.authorName);
+                }).join('') + '</div>'
+              : '') +
+            '</div>';
+        }).join('');
+
+        updateToolbar();
+      }
+
+      function updateToolbar() {
+        $('#comment-selected').textContent = '已选 ' + state.selected.size + ' 条';
+        $('#batch-delete').disabled = state.selected.size === 0;
+
+        const allChecked = currentComments.length > 0 && currentComments.every(function (comment) {
+          return state.selected.has(comment.id);
+        });
+        const someChecked = currentComments.some(function (comment) { return state.selected.has(comment.id); });
+        const selectAll = $('#comment-select-all');
+        selectAll.checked = allChecked;
+        selectAll.indeterminate = !allChecked && someChecked;
+      }
+
+      function renderAll() {
+        ensureSelection();
+        renderThreads();
+        renderComments();
+      }
+
+      /* ---------------------------------------------------------------
+         删除 / 恢复
+         --------------------------------------------------------------- */
+      function setDeleted(comment, deleted) {
+        comment.status = deleted ? 'hidden' : 'normal';
+        state.selected.delete(comment.id);
+      }
+
+      function deleteSingle(comment) {
+        setDeleted(comment, true);
+        App.toast('评论已删除', 'success');
+        renderComments();
+      }
+
+      function restoreSingle(comment) {
+        setDeleted(comment, false);
+        App.toast('评论已恢复显示', 'success');
+        renderComments();
+      }
+
+      function batchDelete() {
+        const targets = currentComments.filter(function (comment) {
+          return state.selected.has(comment.id) && comment.status !== 'hidden';
+        });
+        if (!targets.length) {
+          App.toast('请先选择需要删除的评论', 'warning');
+          return;
+        }
+        App.modal({
+          title: '批量删除评论',
+          desc: '删除后评论将从论坛前台隐藏，作者可在通知中查看处理结果。',
+          body: '<div class="text-md muted">即将删除 <b>' + targets.length + '</b> 条评论，此操作会记入操作日志。</div>',
+          danger: true,
+          confirmText: '确认删除',
+          onConfirm: function () {
+            targets.forEach(function (comment) { setDeleted(comment, true); });
+            state.selected.clear();
+            App.toast('已删除 ' + targets.length + ' 条评论', 'success');
+            renderComments();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#thread-list').addEventListener('click', function (event) {
+        const card = event.target.closest('.thread-card');
+        if (!card) return;
+        state.postId = card.getAttribute('data-post-id');
+        state.selected.clear();
+        renderThreads();
+        renderComments();
+      });
+
+      $('#comment-tree').addEventListener('change', function (event) {
+        const checkbox = event.target.closest('input[data-check]');
+        if (!checkbox) return;
+        const id = checkbox.getAttribute('data-check');
+        if (checkbox.checked) state.selected.add(id);
+        else state.selected.delete(id);
+        const item = checkbox.closest('.comment-item');
+        if (item) item.classList.toggle('selected', checkbox.checked);
+        updateToolbar();
+      });
+
+      $('#comment-tree').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const comment = window.COMMENTS.find(function (item) { return item.id === button.getAttribute('data-id'); });
+        if (!comment) return;
+        if (button.getAttribute('data-action') === 'delete') deleteSingle(comment);
+        else restoreSingle(comment);
+      });
+
+      $('#comment-select-all').addEventListener('change', function () {
+        if (this.checked) currentComments.forEach(function (comment) { state.selected.add(comment.id); });
+        else currentComments.forEach(function (comment) { state.selected.delete(comment.id); });
+        renderComments();
+      });
+
+      $('#batch-delete').addEventListener('click', batchDelete);
+
+      $('#filter-keyword').addEventListener('input', App.debounce(function () {
+        state.keyword = $('#filter-keyword').value;
+        state.selected.clear();
+        renderAll();
+      }, 300));
+
+      $('#filter-status').addEventListener('change', function () {
+        state.status = this.value;
+        state.selected.clear();
+        renderAll();
+      });
+
+      $('#reset-btn').addEventListener('click', function () {
+        state.keyword = '';
+        state.status = '';
+        state.selected.clear();
+        $('#filter-keyword').value = '';
+        $('#filter-status').value = '';
+        renderAll();
+        App.toast('筛选条件已重置', 'info');
+      });
+
+      $('#refresh-btn').addEventListener('click', function () {
+        renderAll();
+        App.toast('评论数据已刷新', 'success');
+      });
+
+      /* 初始化 */
+      ensureSelection();
+      renderAll();
+    })();
+  </script>
+</body>
+</html>

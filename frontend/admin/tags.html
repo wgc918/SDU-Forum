@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>标签管理 · SDU Forum Admin</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main data-page="tags">
+    <!--
+      ======================================================================
+      页面：标签管理
+      ----------------------------------------------------------------------
+      数据字段（TAGS）：
+        id / name / category / color / description / postCount / followCount /
+        status(active|hidden) / moderator / createdAt
+      页面派生：近 7 天新增（按标签 ID 生成）、使用次数迷你条、热门标签 TOP10
+      ----------------------------------------------------------------------
+      后端接口草案：
+        GET    /api/admin/tags?keyword=
+        POST   /api/admin/tags          { name, category, description }
+        PATCH  /api/admin/tags/{id}     { name, category, description, status }
+        DELETE /api/admin/tags/{id}
+        GET    /api/admin/tags/top?limit=10
+      ======================================================================
+    -->
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">标签管理</h1>
+        <p class="page-desc">维护社区标签体系，观察标签热度与近期新增情况</p>
+      </div>
+    </div>
+
+    <!-- 标签云 -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <div>
+          <div class="card-title">标签云</div>
+          <div class="card-sub">展示关联帖子最多的 20 个标签，尺寸与蓝色深浅代表热度</div>
+        </div>
+        <button type="button" class="btn btn-primary" id="new-tag-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="M12 5v14"/>
+          </svg>
+          新建标签
+        </button>
+      </div>
+      <div class="card-body">
+        <div class="tag-cloud" id="tag-cloud"></div>
+      </div>
+    </div>
+
+    <div class="tags-layout">
+      <!-- 标签表格 -->
+      <div class="card table-card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">标签列表</div>
+            <div class="card-sub" id="tag-count">共 0 个标签</div>
+          </div>
+          <div class="card-head-side">
+            <div class="sensitive-search">
+              <div class="input-icon">
+                <svg class="icon icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                </svg>
+                <input class="control" id="tag-search" type="text" placeholder="搜索标签名称" style="height:32px;width:180px;font-size:12px">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="tag-table"></div>
+      </div>
+
+      <!-- 热门标签 TOP10 -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">热门标签 TOP10</div>
+            <div class="card-sub">按关联帖子数排序</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="rank-list" id="rank-list"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script src="assets/mock.js"></script>
+  <script src="assets/charts.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const App = window.App;
+      App.renderLayout('tags');
+
+      const $ = App.$;
+      const $$ = App.$$;
+      const esc = App.escapeHtml;
+      const TAGS = window.TAGS;
+
+      const CATEGORIES = ['校园生活', '学习科研', '求职就业', '兴趣社团', '情感树洞', '站务公告'];
+      const PALETTE = ['#1E5BB8', '#0F766E', '#B45309', '#7C3AED', '#BE123C', '#0369A1', '#4D7C0F', '#9A3412'];
+
+      let keyword = '';
+
+      function recent7(tag) {
+        const num = parseInt(tag.id.slice(1), 10) || 1;
+        return (num * 3) % 23 + 1;
+      }
+
+      function activeTags() {
+        return TAGS.slice().sort(function (a, b) {
+          return b.postCount - a.postCount || b.followCount - a.followCount;
+        });
+      }
+
+      function renderCloud() {
+        const top = activeTags().slice(0, 20);
+        $('#tag-cloud').innerHTML = top.map(function (tag, index) {
+          const size = index < 5 ? 4 : index < 10 ? 3 : index < 15 ? 2 : 1;
+          return '<button type="button" class="tag-pill tag-size-' + size + ' tag-tone-' + size +
+            '" data-id="' + tag.id + '" title="' + esc(tag.name) + ' · ' + tag.postCount + ' 篇帖子">' +
+            esc(tag.name) + '</button>';
+        }).join('');
+      }
+
+      function renderTable() {
+        const keywordLower = keyword.trim().toLowerCase();
+        const rows = activeTags().filter(function (tag) {
+          return !keywordLower || (tag.name + ' ' + tag.category).toLowerCase().indexOf(keywordLower) !== -1;
+        });
+        const maxFollow = Math.max.apply(null, TAGS.map(function (tag) { return tag.followCount; }).concat([1]));
+
+        $('#tag-count').textContent = '共 ' + App.fmtNum(rows.length) + ' 个标签' +
+          (rows.length !== TAGS.length ? '（全部 ' + TAGS.length + ' 个）' : '');
+
+        App.renderTable('#tag-table', [
+          {
+            title: '标签名', width: '210px',
+            cell: function (tag) {
+              return '<div class="tag-name-cell"><span class="tag-color-dot" style="background:' + tag.color + '"></span>' +
+                '<div><div class="cell-main">' + esc(tag.name) + '</div>' +
+                '<div class="cell-sub">' + esc(tag.category) + '</div></div></div>';
+            }
+          },
+          {
+            title: '使用次数', width: '170px',
+            cell: function (tag) {
+              const pct = Math.max(4, Math.round(tag.followCount / maxFollow * 100));
+              return '<span class="tabular">' + App.fmtNum(tag.followCount) + '</span>' +
+                '<span class="mini-bar"><span style="width:' + pct + '%"></span></span>';
+            }
+          },
+          {
+            title: '近 7 天新增', width: '110px',
+            cell: function (tag) {
+              return '<span class="delta up">↑ ' + recent7(tag) + '</span>';
+            }
+          },
+          {
+            title: '关联帖子数', width: '110px',
+            cell: function (tag) {
+              return '<span class="tabular">' + App.fmtNum(tag.postCount) + '</span>';
+            }
+          },
+          {
+            title: '启用状态', width: '96px',
+            cell: function (tag) {
+              return '<label class="switch"><input type="checkbox" class="js-tag-switch" data-id="' + tag.id + '"' +
+                (tag.status === 'active' ? ' checked' : '') + ' aria-label="启用或停用标签"><span class="switch-track"></span></label>';
+            }
+          },
+          {
+            title: '操作', align: 'right', width: '96px',
+            cell: function (tag) {
+              return '<div class="table-actions">' +
+                '<button type="button" class="icon-btn" data-action="edit" data-id="' + tag.id + '" title="编辑" aria-label="编辑">' + App.icon('edit', 16) + '</button>' +
+                '<button type="button" class="icon-btn danger" data-action="delete" data-id="' + tag.id + '" title="删除" aria-label="删除">' + App.icon('trash', 16) + '</button>' +
+                '</div>';
+            }
+          }
+        ], rows, {
+          emptyText: '没有匹配的标签',
+          emptyDesc: '请调整搜索关键词后重试',
+          emptyIcon: 'tags'
+        });
+      }
+
+      function renderRank() {
+        const top = activeTags().slice(0, 10);
+        if (!top.length) {
+          $('#rank-list').innerHTML = App.emptyHTML('暂无标签', '创建标签后会展示热度排名', 'tags');
+          return;
+        }
+        const max = Math.max.apply(null, top.map(function (tag) { return tag.postCount; }).concat([1]));
+        $('#rank-list').innerHTML = top.map(function (tag, index) {
+          return '<div class="rank-item"><span class="rank-index">' + (index + 1) + '</span>' +
+            '<div class="rank-body" id="rank-body-' + index + '"></div></div>';
+        }).join('');
+
+        top.forEach(function (tag, index) {
+          window.Charts.progress('#rank-body-' + index, {
+            label: tag.name,
+            value: tag.postCount,
+            max: max,
+            color: tag.color,
+            suffix: ' 篇'
+          });
+        });
+      }
+
+      function renderAll() {
+        renderCloud();
+        renderTable();
+        renderRank();
+      }
+
+      /* ---------------------------------------------------------------
+         新建 / 编辑 / 删除
+         --------------------------------------------------------------- */
+      function tagFormHTML(tag) {
+        return '<div class="form-stack">' +
+          '<div class="field"><label class="label" for="tag-name">标签名称</label>' +
+          '<input class="control" id="tag-name" placeholder="请输入标签名称，最多 12 个字符" maxlength="12" value="' +
+          (tag ? esc(tag.name) : '') + '"></div>' +
+          '<div class="field"><label class="label" for="tag-category">所属分类</label>' +
+          '<select class="select" id="tag-category">' + CATEGORIES.map(function (category) {
+            return '<option value="' + category + '"' + (tag && tag.category === category ? ' selected' : '') + '>' + category + '</option>';
+          }).join('') + '</select></div>' +
+          '<div class="field"><label class="label" for="tag-desc">标签说明</label>' +
+          '<textarea class="control" id="tag-desc" placeholder="简要说明标签的适用范围（选填）">' + (tag ? esc(tag.description) : '') + '</textarea></div>' +
+          '</div>';
+      }
+
+      function openTagModal(tag) {
+        App.modal({
+          title: tag ? '编辑标签' : '新建标签',
+          desc: tag ? '修改标签名称与分类说明' : '创建后将立即出现在标签列表中',
+          body: tagFormHTML(tag),
+          confirmText: tag ? '保存修改' : '创建标签',
+          onConfirm: function () {
+            const name = $('#tag-name').value.trim();
+            const category = $('#tag-category').value;
+            const description = $('#tag-desc').value.trim();
+            if (!name) {
+              App.toast('请输入标签名称', 'warning');
+              return false;
+            }
+            const duplicate = TAGS.some(function (item) {
+              return item.name === name && (!tag || item.id !== tag.id);
+            });
+            if (duplicate) {
+              App.toast('标签名称已存在，请更换名称', 'warning');
+              return false;
+            }
+
+            if (tag) {
+              tag.name = name;
+              tag.category = category;
+              tag.description = description || ('关于「' + name + '」的讨论与经验分享');
+              App.toast('标签「' + name + '」已更新', 'success');
+            } else {
+              let maxId = 0;
+              TAGS.forEach(function (item) {
+                maxId = Math.max(maxId, parseInt(item.id.slice(1), 10) || 0);
+              });
+              TAGS.unshift({
+                id: 't' + (maxId + 1),
+                name: name,
+                category: category,
+                color: PALETTE[maxId % PALETTE.length],
+                description: description || ('关于「' + name + '」的讨论与经验分享'),
+                postCount: 0,
+                followCount: 0,
+                status: 'active',
+                moderator: '超级管理员',
+                createdAt: Date.now()
+              });
+              App.toast('标签「' + name + '」已创建', 'success');
+            }
+            renderAll();
+          }
+        });
+      }
+
+      function openDeleteModal(tag) {
+        App.modal({
+          title: '删除标签',
+          desc: '删除后该标签将从标签体系中移除，已有帖子内容不会被删除。',
+          body: '<div class="text-md muted">标签：<b>' + esc(tag.name) + '</b> · 关联帖子 ' + App.fmtNum(tag.postCount) + ' 篇</div>',
+          danger: true,
+          confirmText: '确认删除',
+          onConfirm: function () {
+            const index = TAGS.findIndex(function (item) { return item.id === tag.id; });
+            if (index !== -1) TAGS.splice(index, 1);
+            App.toast('标签「' + tag.name + '」已删除', 'success');
+            renderAll();
+          }
+        });
+      }
+
+      /* ---------------------------------------------------------------
+         事件
+         --------------------------------------------------------------- */
+      $('#tag-cloud').addEventListener('click', function (event) {
+        const pill = event.target.closest('.tag-pill');
+        if (!pill) return;
+        const tag = TAGS.find(function (item) { return item.id === pill.getAttribute('data-id'); });
+        if (tag) App.toast('「' + tag.name + '」当前关联 ' + tag.postCount + ' 篇帖子', 'info');
+      });
+
+      $('#tag-table').addEventListener('change', function (event) {
+        if (!event.target.classList.contains('js-tag-switch')) return;
+        const tag = TAGS.find(function (item) { return item.id === event.target.getAttribute('data-id'); });
+        if (!tag) return;
+        tag.status = event.target.checked ? 'active' : 'hidden';
+        App.toast('标签「' + tag.name + '」已' + (tag.status === 'active' ? '启用' : '停用'), 'success');
+      });
+
+      $('#tag-table').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const tag = TAGS.find(function (item) { return item.id === button.getAttribute('data-id'); });
+        if (!tag) return;
+        if (button.getAttribute('data-action') === 'edit') openTagModal(tag);
+        else if (button.getAttribute('data-action') === 'delete') openDeleteModal(tag);
+      });
+
+      $('#tag-search').addEventListener('input', App.debounce(function () {
+        keyword = $('#tag-search').value;
+        renderTable();
+      }, 250));
+
+      $('#new-tag-btn').addEventListener('click', function () { openTagModal(null); });
+
+      renderAll();
+    })();
+  </script>
+</body>
+</html>
