@@ -10,6 +10,7 @@
 #include "common/ban_enums.h"
 #include "common/errors.h"
 #include "log.h"
+#include "repositories/blacklist_repository.h"
 
 namespace
 {
@@ -61,12 +62,12 @@ std::string add_time_to_now(uint16_t time_type, uint32_t time)
     return std::string(buf);
 }
 
-/// 根据封禁时长计算过期时间；永久封禁返回 nullopt
+/// 根据封禁时长计算过期时间；永久封禁返回 PERMANENT_EXPIRE
 /// @throws common::AppException 时长参数非法
-std::optional<std::string> resolve_expire_at(const admin::service::BanMeta& data)
+std::string resolve_expire_at(const admin::service::BanMeta& data)
 {
     if (data.time_type == kPermanentTimeType)
-        return std::nullopt;
+        return repository::PERMANENT_EXPIRE;
 
     if (data.time_type > 2 || data.time == 0)
         throw common::AppException(common::ErrorCode::InvalidParam, "invalid ban duration");
@@ -77,9 +78,10 @@ std::optional<std::string> resolve_expire_at(const admin::service::BanMeta& data
 /// 取写库用的原因原文：自定义原因优先，否则使用标准文案兜底
 std::string resolve_reason_text(const admin::service::BanMeta& data)
 {
-    if (!data.reason_text.empty())
-        return data.reason_text;
-    return ban::ReasonDisplayText(data.reason);
+    if (!data.reason.empty() && (data.reason_code == ban::ReasonCode::Unspecified ||
+                                 data.reason_code == ban::ReasonCode::ManualCustom))
+        return data.reason;
+    return ban::ReasonDisplayText(data.reason_code);
 }
 
 }  // namespace
@@ -97,7 +99,7 @@ AdminUserService::AdminUserService(repository::BlacklistRepository& blacklist_re
 void AdminUserService::ban(uint64_t account_id, const std::string& operator_id, const BanMeta& data)
 {
     ban::BanRecordInput input;
-    input.reason_code = static_cast<uint16_t>(data.reason);
+    input.reason_code = static_cast<uint16_t>(data.reason_code);
     input.reason      = resolve_reason_text(data);
     input.ban_type    = static_cast<uint8_t>(data.type);
     input.source      = data.source;
@@ -127,12 +129,12 @@ void AdminUserService::ban(uint64_t account_id, const std::string& operator_id, 
         throw common::AppException(common::ErrorCode::Conflict, "account is already banned");
     }
 
-    const auto expire_at = resolve_expire_at(data);
+    const std::string expire_at = resolve_expire_at(data);
 
     repository::BlacklistEntry entry;
     entry.account_id  = account_id;
     entry.reason      = input.reason;
-    entry.reason_code = data.reason;
+    entry.reason_code = data.reason_code;
     entry.ban_type    = data.type;
     entry.banned_by   = operator_id;
     entry.expire_at   = expire_at;
@@ -157,7 +159,10 @@ void AdminUserService::ban(uint64_t account_id, const std::string& operator_id, 
 void AdminUserService::unban(uint64_t account_id, const std::string& operator_id, ban::BanType type,
                              const std::string& unban_reason)
 {
-    const bool has_active = m_blacklist_repo.exists_active(account_id, type);
+    /// 1.封禁all 解除单一维度无效
+    /// 2.封禁单一维度（含多个） 用all可全部解除
+    const bool has_active = m_blacklist_repo.exists_active(account_id, type) ||
+                            m_blacklist_repo.is_blacklisted(account_id);
     if (!has_active)
     {
         LOGW("unban failed: no active ban, account_id=%llu, ban_type=%u",
@@ -165,8 +170,7 @@ void AdminUserService::unban(uint64_t account_id, const std::string& operator_id
         throw common::AppException(common::ErrorCode::NotFound, "no active ban record");
     }
 
-    const int affected = m_blacklist_repo.unban(
-        account_id, type, std::optional<std::string>{operator_id}, unban_reason);
+    const int affected = m_blacklist_repo.unban(account_id, type, operator_id, unban_reason);
     if (affected <= 0)
     {
         LOGW("unban failed: no record updated, account_id=%llu",
@@ -188,7 +192,6 @@ bool AdminUserService::is_blacklisted(uint64_t account_id) const
 /// 查询用户在某维度是否被禁（用于评论/发帖等拦截点）
 bool AdminUserService::is_banned(uint64_t account_id, ban::BanType type) const
 {
-    return m_blacklist_repo.is_banned(account_id, type);
 }
 
 /// 获取某维度的生效封禁详情
@@ -222,7 +225,7 @@ std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_re
     filter.from       = from;
     filter.to         = to;
     filter.status     = status;
-    filter.account_id = 0;
+    filter.account_id = std::nullopt;
 
     return m_blacklist_repo.search(filter, page, page_size);
 }
@@ -237,7 +240,7 @@ std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_ty
     filter.from       = from;
     filter.to         = to;
     filter.status     = status;
-    filter.account_id = 0;
+    filter.account_id = std::nullopt;
 
     return m_blacklist_repo.search(filter, page, page_size);
 }
@@ -245,7 +248,7 @@ std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_ty
 /// 查询用户当前状态：任一维度 Active 则 Active，否则看是否有 Expired
 std::optional<ban::BanStatus> AdminUserService::get_user_status(uint64_t account_id) const
 {
-    return m_blacklist_repo.get_user_status(account_id);
+    
 }
 
 }  // namespace admin::service

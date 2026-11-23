@@ -10,13 +10,13 @@ namespace admin::service
 {
 struct BanMeta
 {
-    ban::ReasonCode reason    = ban::ReasonCode::Unspecified;
-    ban::BanType    type      = ban::BanType::All;
-    uint16_t        time_type = 0;  // 0=分钟 1=小时 2=天 0xFFFF=永久
-    uint32_t        time      = 0;  // 时长数值；永久时忽略
-    std::string     reason_text;    // 自定义原因原文（code=Unspecified/ManualCustom 时必填）
-    uint64_t        ref_id = 0;     // 关联工单/举报 ID，0=无
-    ban::BanSource  source = ban::BanSource::Manual;
+    std::string     reason;  // 自定义原因原文（code=Unspecified/ManualCustom 时必填）
+    ban::ReasonCode reason_code = ban::ReasonCode::Unspecified;
+    ban::BanType    type        = ban::BanType::All;
+    uint16_t        time_type   = 0;  // 0=分钟 1=小时 2=天 0xFFFF=永久
+    uint32_t        time        = 0;  // 时长数值；永久时忽略
+    uint64_t        ref_id      = 0;  // 关联工单/举报 ID，0=无
+    ban::BanSource  source      = ban::BanSource::Manual;
 };
 
 class AdminUserService
