@@ -11,22 +11,31 @@
 namespace repository
 {
 
+const std::string PERMANENT_EXPIRE = "9999-12-30 23:59:59";
+const std::string NOT_UNBANNED     = "1970-01-01 00:00:00";
+
 struct BlacklistEntry
 {
-    uint64_t                   id         = 0;
-    uint64_t                   account_id = 0;
-    std::string                reason;  // reason
-    ban::ReasonCode            reason_code = ban::ReasonCode::Unspecified;
-    ban::BanType               ban_type    = ban::BanType::All;
-    std::optional<std::string> banned_by;  // NULL = 系统自动
-    std::string                banned_at;  // "YYYY-MM-DD HH:MM:SS"
-    std::optional<std::string> expire_at;  // nullopt = 永久
-    std::optional<std::string> unbanned_at;
-    std::optional<std::string> unbanned_by;
-    std::optional<std::string> unban_reason;
-    ban::BanStatus             status = ban::BanStatus::Active;
-    ban::BanSource             source = ban::BanSource::Manual;
-    uint64_t                   ref_id = 0;  // 0 = 无关联
+    uint64_t        id         = 0;
+    uint64_t        account_id = 0;
+    std::string     reason;  // reason default ''
+    ban::ReasonCode reason_code = ban::ReasonCode::Unspecified;
+    ban::BanType    ban_type    = ban::BanType::All;
+    std::string     banned_by;     // default auto = 系统自动
+    std::string     banned_at;     // "YYYY-MM-DD HH:MM:SS"
+    std::string     expire_at;     // default 9999-12-30=永久
+    std::string     unbanned_at;   // default 1970-01-01=未解封
+    std::string     unbanned_by;   // default ''
+    std::string     unban_reason;  // default ''
+    ban::BanStatus  status = ban::BanStatus::Active;
+    ban::BanSource  source = ban::BanSource::Manual;
+    uint64_t        ref_id = 0;  // 0 = 无关联
+};
+
+struct BanState
+{
+    ban::BanStatus status;
+    ban::BanType   type;
 };
 
 /// 搜索过滤条件（各字段为 nullopt 表示不过滤）
@@ -58,7 +67,7 @@ public:
     /// 解除封禁（按维度；type=All 表示解除该账号全部生效记录）
     /// 会写入 unbanned_at=NOW()、unbanned_by、unban_reason、status=0
     /// @return 实际更新的行数
-    int unban(uint64_t account_id, ban::BanType type, std::optional<std::string> operator_id,
+    int unban(uint64_t account_id, ban::BanType type, const std::string& operator_id,
               const std::string& unban_reason);
 
     /// 全局兜底：把已过期但仍为 status=1 的记录批量置为 status=2（已过期）
@@ -85,8 +94,8 @@ public:
     /// 条件查询（分页），按 banned_at DESC
     std::vector<BlacklistEntry> search(const BlacklistFilter& filter, int page, int page_size);
 
-    /// 用户当前状态：任一维度 Active -> Active；否则若有 Expired -> Expired；否则 nullopt
-    std::optional<ban::BanStatus> get_user_status(uint64_t account_id);
+    /// 用户当前状态 ban_type 仅在all时有效
+    std::optional<BanState> get_user_status(uint64_t account_id);
 
 private:
     IDbConnectionProvider& m_db_provider;
