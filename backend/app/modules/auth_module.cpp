@@ -10,10 +10,9 @@ namespace app::modules
 AuthModule::AuthModule(const infra::AppConfig&                 config,
                        repository::PooledDbConnectionProvider& db_provider,
                        repository::TokenRepository&            token_repo,
-                       repository::BlacklistRepository&        blacklist_repo,
                        admin::service::BanService&             ban_service)
     : m_account_repository(db_provider, config.auth().account_table),
-      m_service(m_account_repository, blacklist_repo, token_repo, ban_service, config.jwt()),
+      m_service(m_account_repository, token_repo, ban_service, config.jwt()),
       m_controller(m_service)
 {
 }

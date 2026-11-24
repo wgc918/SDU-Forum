@@ -35,9 +35,8 @@ struct LoginResult
 class AuthService
 {
 public:
-    AuthService(repository::AccountRepository& account, repository::BlacklistRepository& blacklist,
-                repository::TokenRepository& token, admin::service::BanService& ban_service,
-                const infra::JwtConfig& jwt_config);
+    AuthService(repository::AccountRepository& account, repository::TokenRepository& token,
+                admin::service::BanService& ban_service, const infra::JwtConfig& jwt_config);
 
     /// @throws common::AppException
     LoginResult login(const std::string& user_id, const std::string& password);
@@ -59,14 +58,13 @@ public:
                 const std::string access_token);
 
 private:
-    repository::AccountRepository&   m_account_repo;
-    repository::BlacklistRepository& m_blacklist_repo;
-    repository::TokenRepository&     m_token_repo;
-    admin::service::BanService&      m_ban_service;
-    infra::TokenSigner               m_access_signer;
-    infra::TokenSigner               m_refresh_signer;
-    int64_t                          m_access_ttl_seconds;
-    int64_t                          m_refresh_ttl_seconds;
+    repository::AccountRepository& m_account_repo;
+    repository::TokenRepository&   m_token_repo;
+    admin::service::BanService&    m_ban_service;
+    infra::TokenSigner             m_access_signer;
+    infra::TokenSigner             m_refresh_signer;
+    int64_t                        m_access_ttl_seconds;
+    int64_t                        m_refresh_ttl_seconds;
 };
 
 }  // namespace service

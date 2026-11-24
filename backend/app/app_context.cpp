@@ -43,7 +43,7 @@ AppContext::AppContext(const infra::AppConfig& config)
           std::make_shared<middleware::AdminRefreshAuthMiddleware>(config.jwt(), m_token_repo)),
       m_admin_role_middleware(std::make_shared<middleware::AdminRoleMiddle>()),
       m_auth_module(std::make_shared<modules::AuthModule>(m_config, m_db_provider, m_token_repo,
-                                                          m_blacklist_repo, m_ban_service)),
+                                                          m_ban_service)),
       m_admin_auth_module(
           std::make_shared<modules::AdminAuthModule>(m_config, m_db_provider, m_token_repo)),
       m_admin_user_module(std::make_shared<modules::AdminUserModule>(m_blacklist_repo))

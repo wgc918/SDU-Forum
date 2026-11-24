@@ -24,9 +24,7 @@ public:
     /// @param token_repo 共享令牌仓库
     /// @param blacklist_repo 共享黑名单仓库
     AuthModule(const infra::AppConfig& config, repository::PooledDbConnectionProvider& db_provider,
-               repository::TokenRepository&     token_repo,
-               repository::BlacklistRepository& blacklist_repo,
-               admin::service::BanService&      ban_service);
+               repository::TokenRepository& token_repo, admin::service::BanService& ban_service);
     void register_routes(drogon::HttpAppFramework& app) override;
 
 private:

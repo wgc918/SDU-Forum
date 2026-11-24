@@ -20,13 +20,10 @@
 namespace service
 {
 
-AuthService::AuthService(repository::AccountRepository&   account,
-                         repository::BlacklistRepository& blacklist,
-                         repository::TokenRepository&     token,
-                         admin::service::BanService&      ban_service,
-                         const infra::JwtConfig&          jwt_config)
+AuthService::AuthService(repository::AccountRepository& account, repository::TokenRepository& token,
+                         admin::service::BanService& ban_service,
+                         const infra::JwtConfig&     jwt_config)
     : m_account_repo(account),
-      m_blacklist_repo(blacklist),
       m_token_repo(token),
       m_ban_service(ban_service),
       m_access_signer(jwt_config.access_secret, jwt_config.issuer),
