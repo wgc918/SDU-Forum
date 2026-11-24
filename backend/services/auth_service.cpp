@@ -11,7 +11,6 @@
 #include "config/app_config.h"
 #include "log.h"
 #include "repositories/account_repository.h"
-#include "repositories/blacklist_repository.h"
 #include "repositories/token_repository.h"
 #include "security/password_hasher.h"
 #include "services/admin/ban_service.h"
@@ -47,6 +46,14 @@ LoginResult AuthService::login(const std::string& user_id, const std::string& pa
         LOGW("login failed: user_id=%s", user_id.c_str());
         throw common::AppException(common::ErrorCode::InvalidCredentials,
                                    "user id or password is incorrect");
+    }
+
+    auto all_entry = m_ban_service.is_banned(account->id, ban::BanType::All);
+    if (all_entry.has_value())
+    
+    {
+        LOGW("login failed: user_id=%s is banned all", user_id.c_str());
+        throw common::AppException(common::ErrorCode::AccountBanned, "account is banned all");
     }
 
     auto entry = m_ban_service.is_banned(account->id, ban::BanType::Login);
@@ -179,6 +186,14 @@ LoginResult AuthService::refresh_token(const std::string& refresh_token,
     if (!payload)
         throw common::AppException(common::ErrorCode::Unauthorized,
                                    "invalid or expired refresh token");
+
+    auto account = m_account_repo.find_account_by_public_id(payload->sub);
+    auto entry   = m_ban_service.is_banned(account->id, ban::BanType::Login);
+    if (entry.has_value())
+    {
+        LOGW("refresh token failed: user_id=%s is banned", account->user_id.c_str());
+        throw common::AppException(common::ErrorCode::AccountBanned, "account is banned");
+    }
 
     LoginResult result;
     if (refreshing)
