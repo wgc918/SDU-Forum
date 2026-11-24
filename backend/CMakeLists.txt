@@ -67,6 +67,7 @@ add_library(sdu_app STATIC
     services/auth_service.cpp
     services/admin/auth_service.cpp
     services/admin/user_service.cpp
+    services/admin/ban_service.cpp
     repositories/account_repository.cpp
     repositories/admin_account_repository.cpp
     repositories/blacklist_repository.cpp
