@@ -260,6 +260,10 @@ public:
             throw sql::SQLException("stub int bind failure");
     }
 
+    void set_uint64(uint16_t, uint64_t) override
+    {
+    }
+
     void set_datetime(uint16_t, const std::string&) override
     {
         if (m_state->throw_on_set_datetime)
@@ -295,6 +299,7 @@ struct SpyDbState
 
     std::vector<std::pair<uint16_t, std::string>> string_params;    ///< 字符串绑定参数
     std::vector<std::pair<uint16_t, int>>         int_params;       ///< 整型绑定参数
+    std::vector<std::pair<uint16_t, uint64_t>>    uint64_params;    ///< 无符号整型绑定参数
     std::vector<std::pair<uint16_t, std::string>> datetime_params;  ///< 时间绑定参数
 
     int prepare_calls = 0;  ///< 预处理次数
@@ -349,6 +354,12 @@ public:
     {
         m_state->events.push_back("bind_int");
         m_state->int_params.emplace_back(index, value);
+    }
+
+    void set_uint64(uint16_t index, uint64_t value) override
+    {
+        m_state->events.push_back("bind_uint64");
+        m_state->uint64_params.emplace_back(index, value);
     }
 
     void set_datetime(uint16_t index, const std::string& value) override

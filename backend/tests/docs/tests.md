@@ -16,6 +16,7 @@
 | 模块 | 测试可执行文件 | CTest 名称 | 用例数 | 使用替身 |
 |---|---|---|---:|---|
 | `repository::AccountRepository` | `test_account_repository` | `AccountRepositoryUnit` | 21 | Stub / Spy / Unavailable |
+| `repository::AdminAccountRepository` | `test_admin_account_repository` | `AdminAccountRepositoryUnit` | 15 | Stub / Spy / Unavailable |
 | `repository::TokenRepository` | `test_token_repository` | `TokenRepositoryUnit` | 34 | Dummy / Stub / Spy / Mock / Fake / Unavailable |
 | `service::AuthService` | `test_auth_service` | `AuthServiceUnit` | 34 | Dummy / Stub / Spy / Fake / Unavailable |
 | `utils::timestamp_to_string` | `test_utils` | `UtilsUnit` | 1 | 无（纯函数） |

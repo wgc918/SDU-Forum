@@ -151,7 +151,7 @@ void AppConfig::load(const std::string& path)
     m_jwt.refresh_token_hours  = int_of(auth, "refresh_token_hours", 168);
     m_auth.account_table       = string_of(auth, "account_table", m_auth.account_table);
     m_auth.blacklist_table     = string_of(auth, "blacklist_table", m_auth.blacklist_table);
-    m_auth.admin_account_table = string_of(auth, "admin_account_able", m_auth.admin_account_table);
+    m_auth.admin_account_table = string_of(auth, "admin_account_table", m_auth.admin_account_table);
 
     const auto& redis = section_of("redis");
     m_redis.host      = string_of(redis, "host", m_redis.host);

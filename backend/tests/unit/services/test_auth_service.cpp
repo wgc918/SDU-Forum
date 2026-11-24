@@ -20,7 +20,6 @@
 #include "auth/token_signer.h"
 #include "common/errors.h"
 #include "config/app_config.h"
-#include "conn-pool/ConnectionPool.h"
 #include "doctest.h"
 #include "repositories/account_repository.h"
 #include "repositories/blacklist_repository.h"
@@ -65,12 +64,6 @@ infra::JwtConfig make_jwt_config()
     config.access_token_minutes = kAccessTtlSeconds / 60;
     config.refresh_token_hours  = kRefreshTtlSeconds / 3600;
     return config;
-}
-
-/// BlacklistRepository 需要连接池引用；被测代码从不触发其查询，使用共享单例仅为满足构造
-dcp::ConnectionPool& shared_db_pool()
-{
-    return dcp::ConnectionPool::instance(dcp::DatabaseType::MySQL);
 }
 
 /// 计算 token 在仓库中使用的存储键
@@ -126,26 +119,25 @@ void provide_valid_account(DbProvider& db, const std::string& public_id, const s
     fill_account_row(*db.connection().state().row, public_id, password);
 }
 
-/**
- * @brief 组装被测 AuthService 及其全部依赖
- * @tparam DbProvider 数据库提供者替身类型
- * @tparam CacheProvider 缓存提供者替身类型
- */
+/// BlacklistRepository 与账号仓库共用同一接口，封禁查询使用独立替身，避免污染账号查询交互
 template <typename DbProvider, typename CacheProvider>
 struct AuthEnv
 {
     DbProvider                      db;
+    test_support::StubDbProvider    ban_db;
     CacheProvider                   cache;
     repository::AccountRepository   account;
     repository::BlacklistRepository blacklist;
+    admin::service::BanService      ban;
     repository::TokenRepository     token;
     service::AuthService            auth;
 
     AuthEnv()
         : account(db, kAccountTable),
-          blacklist(shared_db_pool(), kBlacklistTable),
+          blacklist(ban_db, kBlacklistTable),
+          ban(blacklist),
           token(db, cache, make_token_config()),
-          auth(account, blacklist, token, make_jwt_config())
+          auth(account, token, ban, make_jwt_config())
     {
     }
 };
@@ -486,6 +478,7 @@ TEST_SUITE("AuthService")
     TEST_CASE("refresh_token issues new access and refresh tokens when refreshing")
     {
         AuthEnv<test_support::StubDbProvider, test_support::FakeCacheProvider> env;
+        provide_valid_account(env.db, "usr_alice", "secret");
         env.db.connection().state().update_rows = 1;
         const auto old_refresh                  = sign_refresh("usr_alice");
         const auto old_access                   = sign_access("usr_alice");
@@ -503,6 +496,7 @@ TEST_SUITE("AuthService")
     TEST_CASE("refresh_token revokes old refresh token with new expiry")
     {
         AuthEnv<test_support::SpyDbProvider, test_support::FakeCacheProvider> env;
+        provide_valid_account(env.db, "usr_alice", "secret");
         env.db.connection().state().update_rows = 1;
         const auto old_refresh                  = sign_refresh("usr_alice");
         const auto old_access                   = sign_access("usr_alice");
@@ -515,18 +509,25 @@ TEST_SUITE("AuthService")
         const auto& state = env.db.connection().state();
         CHECK(state.prepared_sql ==
               "INSERT INTO refresh_token_it (token_hash,expires_at) VALUES (?,?)");
-        REQUIRE(state.string_params.size() == 1);
+        REQUIRE(state.string_params.size() == 2);
         CHECK(state.string_params[0].first == 1);
-        CHECK(state.string_params[0].second == hash_of(old_refresh.value));
+        CHECK(state.string_params[0].second == "usr_alice");
+        CHECK(state.string_params[1].first == 1);
+        CHECK(state.string_params[1].second == hash_of(old_refresh.value));
         REQUIRE(state.datetime_params.size() == 1);
+        CHECK(state.datetime_params[0].first == 2);
         CHECK(state.datetime_params[0].second ==
               utils::timestamp_to_string(new_payload->expires_at));
         CHECK(state.update_calls == 1);
+        CHECK(state.events ==
+              std::vector<std::string>{"prepare", "bind_string", "query", "prepare", "bind_string",
+                                       "bind_datetime", "update"});
     }
 
     TEST_CASE("refresh_token refreshes access token only when not refreshing")
     {
         AuthEnv<test_support::SpyDbProvider, test_support::FakeCacheProvider> env;
+        provide_valid_account(env.db, "usr_alice", "secret");
         const auto old_refresh = sign_refresh("usr_alice");
         const auto old_access  = sign_access("usr_alice");
 
@@ -535,7 +536,8 @@ TEST_SUITE("AuthService")
         CHECK(result.public_id.empty());
         CHECK(result.refresh_token.empty());
         CHECK_FALSE(result.access_token.empty());
-        CHECK(env.db.connection().state().prepare_calls == 0);
+        CHECK(env.db.connection().state().prepare_calls == 1);
+        CHECK(env.db.connection().state().query_calls == 1);
         CHECK(env.db.connection().state().update_calls == 0);
         CHECK(env.cache.fake().contains(hash_of(old_access.value)));
     }
@@ -543,6 +545,7 @@ TEST_SUITE("AuthService")
     TEST_CASE("refresh_token still returns access token when cache write fails")
     {
         AuthEnv<test_support::StubDbProvider, test_support::StubCacheProvider> env;
+        provide_valid_account(env.db, "usr_alice", "secret");
         env.cache.connection().state().set_result = false;
         const auto old_refresh                    = sign_refresh("usr_alice");
         const auto old_access                     = sign_access("usr_alice");
