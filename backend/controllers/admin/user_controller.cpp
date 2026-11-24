@@ -295,11 +295,11 @@ void AdminUserController::ban(const drogon::HttpRequestPtr&                     
         throw common::AppException(common::ErrorCode::InvalidParam, "invalid time_type");
 
     service::BanMeta meta;
-    meta.reason      = static_cast<ban::ReasonCode>(raw_reason);
+    meta.reason_code = static_cast<ban::ReasonCode>(raw_reason);
     meta.type        = type;
     meta.time_type   = static_cast<uint16_t>(raw_time_type);
-    meta.reason_text = optional_string(body, "reason").value_or("");
-    meta.source      = parse_ban_source(optional_string(body, "source"));
+    meta.reason      = optional_string(body, "reason").value_or("");
+    meta.source      = ban::string_to_ban_source(optional_string(body, "source").value_or(""));
 
     if (auto ref_id = optional_uint64(body, "ref_id"))
         meta.ref_id = *ref_id;
@@ -314,7 +314,7 @@ void AdminUserController::ban(const drogon::HttpRequestPtr&                     
         meta.time = static_cast<uint32_t>(raw_time);
     }
 
-    if (meta.reason_text.size() > kMaxReasonLength)
+    if (meta.reason.size() > kMaxReasonLength)
         throw common::AppException(common::ErrorCode::InvalidParam, "reason is too long");
 
     m_service.ban(account_id, middleware::current_admin_id(req), meta);
@@ -344,17 +344,6 @@ void AdminUserController::unban(const drogon::HttpRequestPtr&                   
 
     m_service.unban(account_id, middleware::current_admin_id(req), type, unban_reason);
     callback(common::no_content_response());
-}
-
-void AdminUserController::get_status(const drogon::HttpRequestPtr&                         req,
-                                     std::function<void(const drogon::HttpResponsePtr&)>&& callback)
-{
-    const uint64_t account_id = require_query_account_id(req);
-
-    Json::Value data;
-    data["account_id"] = Json::UInt64(account_id);
-    data["status"]     = ban::ban_status_name(m_service.get_user_status(account_id));
-    callback(common::data_response(200, data));
 }
 
 void AdminUserController::get_history(

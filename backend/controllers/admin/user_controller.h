@@ -24,8 +24,6 @@ public:
     void unban(const drogon::HttpRequestPtr&                         req,
                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 
-    void get_status(const drogon::HttpRequestPtr&                         req,
-                std::function<void(const drogon::HttpResponsePtr&)>&& callback);
     void get_history(const drogon::HttpRequestPtr&                         req,
                  std::function<void(const drogon::HttpResponsePtr&)>&& callback);
     void get_blacklist(const drogon::HttpRequestPtr&                         req,

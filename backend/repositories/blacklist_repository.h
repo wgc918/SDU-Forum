@@ -32,12 +32,6 @@ struct BlacklistEntry
     uint64_t        ref_id = 0;  // 0 = 无关联
 };
 
-struct BanState
-{
-    ban::BanStatus status;
-    ban::BanType   type;
-};
-
 /// 搜索过滤条件（各字段为 nullopt 表示不过滤）
 struct BlacklistFilter
 {
@@ -48,6 +42,18 @@ struct BlacklistFilter
     std::optional<ban::BanStatus>  status;
     std::optional<uint64_t>        account_id;
 };
+
+struct PageResult
+{
+    std::vector<BlacklistEntry> item;
+    uint64_t                    total;
+};
+
+/*
+封禁思路：在鉴权中间件中检测ALL,能立即响应全局的封禁（在下一次请求前）
+具体的 banType 在执行具体业务前检测
+这样就能避免了 all和单一类型的联合判断
+*/
 
 class BlacklistRepository
 {
@@ -84,15 +90,11 @@ public:
     std::optional<BlacklistEntry> get_active(uint64_t account_id, ban::BanType type);
 
     /// 全部历史（含已解除/已过期），按 banned_at DESC
-    std::vector<BlacklistEntry> get_history(uint64_t account_id);
-
-    /// 分页查询生效中的黑名单，按 banned_at DESC
-    std::vector<BlacklistEntry> list_active(int page, int page_size);
+    PageResult get_history(uint64_t account_id);
 
     /// 条件查询（分页），按 banned_at DESC
-    std::vector<BlacklistEntry> search(const BlacklistFilter& filter, int page, int page_size);
+    PageResult search(const BlacklistFilter& filter, int page, int page_size);
 
-    
 private:
     IDbConnectionProvider& m_db_provider;
     std::string            m_blacklist_table;

@@ -256,7 +256,7 @@ std::optional<BlacklistEntry> BlacklistRepository::get_active(uint64_t     accou
 }
 
 /// 全部历史（含已解除/已过期），按 banned_at DESC
-std::vector<BlacklistEntry> BlacklistRepository::get_history(uint64_t account_id)
+PageResult BlacklistRepository::get_history(uint64_t account_id)
 {
     auto conn = m_db_provider.acquire();
     if (!conn)
@@ -275,42 +275,7 @@ std::vector<BlacklistEntry> BlacklistRepository::get_history(uint64_t account_id
         std::vector<BlacklistEntry> entries;
         while (res->next())
             entries.push_back(read_entry(*res));
-        return entries;
-    }
-    catch (const sql::SQLException& e)
-    {
-        LOGW("query blacklist failed:%s", e.what());
-        throw common::AppException(common::ErrorCode::DatabaseError, "database select failed");
-    }
-}
-
-/// 分页查询生效中的黑名单，按 banned_at DESC
-std::vector<BlacklistEntry> BlacklistRepository::list_active(int page, int page_size)
-{
-    if (page < 1 || page_size < 1)
         return {};
-
-    auto conn = m_db_provider.acquire();
-    if (!conn)
-        throw common::AppException(common::ErrorCode::DatabaseError,
-                                   "database connection unavailable");
-    try
-    {
-        conn->prepare_statement("SELECT * FROM " + m_blacklist_table +
-                                " WHERE `status`=? AND expire_at > NOW()"
-                                " ORDER BY banned_at DESC LIMIT ? OFFSET ?");
-        conn->set_int(1, static_cast<uint8_t>(ban::BanStatus::Active));
-        conn->set_int(2, page_size);
-        conn->set_int(3, (page - 1) * page_size);
-
-        auto res = conn->execute_query();
-        if (!res)
-            throw common::AppException(common::ErrorCode::DatabaseError, "database no result");
-
-        std::vector<BlacklistEntry> entries;
-        while (res->next())
-            entries.push_back(read_entry(*res));
-        return entries;
     }
     catch (const sql::SQLException& e)
     {
@@ -320,8 +285,7 @@ std::vector<BlacklistEntry> BlacklistRepository::list_active(int page, int page_
 }
 
 /// 条件查询（分页），按 banned_at DESC
-std::vector<BlacklistEntry> BlacklistRepository::search(const BlacklistFilter& filter, int page,
-                                                        int page_size)
+PageResult BlacklistRepository::search(const BlacklistFilter& filter, int page, int page_size)
 {
     if (page < 1 || page_size < 1)
         return {};
@@ -393,7 +357,7 @@ std::vector<BlacklistEntry> BlacklistRepository::search(const BlacklistFilter& f
         std::vector<BlacklistEntry> entries;
         while (res->next())
             entries.push_back(read_entry(*res));
-        return entries;
+        return {};
     }
     catch (const sql::SQLException& e)
     {

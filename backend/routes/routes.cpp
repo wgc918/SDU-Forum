@@ -110,14 +110,6 @@ void register_admin_user_routes(drogon::HttpAppFramework&               app,
          middleware::AdminRoleMiddle::classTypeName()});
 
     app.registerHandler(
-        base_url + "/status",
-        [&controller](const drogon::HttpRequestPtr&                         req,
-                      std::function<void(const drogon::HttpResponsePtr&)>&& callback)
-        { controller.get_status(req, std::move(callback)); },
-        {drogon::Get, middleware::AdminAccessAuthMiddleware::classTypeName(),
-         middleware::AdminRoleMiddle::classTypeName()});
-
-    app.registerHandler(
         base_url + "/history",
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
