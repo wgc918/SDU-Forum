@@ -38,12 +38,6 @@ public:
     void unban(uint64_t account_id, const std::string& operator_id,
                ban::BanType type = ban::BanType::All, const std::string& unban_reason = "");
 
-    /// 查询用户是否在任一维度被禁（默认只查生效中的）
-    bool is_blacklisted(uint64_t account_id) const;
-
-    /// 查询用户在某维度是否被禁（用于评论/发帖等拦截点）
-    bool is_banned(uint64_t account_id, ban::BanType type) const;
-
     /// 获取某维度的生效封禁详情
     std::optional<repository::BlacklistEntry> get_active(uint64_t     account_id,
                                                          ban::BanType type) const;
@@ -83,7 +77,7 @@ public:
     /// 对于过期自动解封的处理
     /// 不设定时任务，靠查询时兜底——但"兜底"必须是"查询时不依赖 status 字段"
     /// WHERE account_id = ? AND ban_type = ?
-    /// AND status = 1 AND(expire_at IS NULL OR expire_at > NOW())
+    /// AND status = 1 AND expire_at > NOW()
     /// 周期线程做全局兜底清理
 
 private:

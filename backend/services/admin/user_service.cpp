@@ -183,17 +183,6 @@ void AdminUserService::unban(uint64_t account_id, const std::string& operator_id
          operator_id.c_str());
 }
 
-/// 查询用户是否在任一维度被禁（默认只查生效中的）
-bool AdminUserService::is_blacklisted(uint64_t account_id) const
-{
-    return m_blacklist_repo.is_blacklisted(account_id);
-}
-
-/// 查询用户在某维度是否被禁（用于评论/发帖等拦截点）
-bool AdminUserService::is_banned(uint64_t account_id, ban::BanType type) const
-{
-}
-
 /// 获取某维度的生效封禁详情
 std::optional<repository::BlacklistEntry> AdminUserService::get_active(uint64_t     account_id,
                                                                        ban::BanType type) const
@@ -204,14 +193,14 @@ std::optional<repository::BlacklistEntry> AdminUserService::get_active(uint64_t 
 /// 获取用户全部封禁历史（含已解除/已过期）
 std::vector<repository::BlacklistEntry> AdminUserService::get_ban_history(uint64_t account_id) const
 {
-    return m_blacklist_repo.get_history(account_id);
+    // return m_blacklist_repo.get_history(account_id);
 }
 
 /// 分页查询黑名单列表（仅生效中）
 std::vector<repository::BlacklistEntry> AdminUserService::list_blacklist(int page,
                                                                          int page_size) const
 {
-    return m_blacklist_repo.list_active(page, page_size);
+    // return m_blacklist_repo.list_active(page, page_size);
 }
 
 /// 按封禁原因/时间范围过滤查询
@@ -227,7 +216,7 @@ std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_re
     filter.status     = status;
     filter.account_id = std::nullopt;
 
-    return m_blacklist_repo.search(filter, page, page_size);
+    // return m_blacklist_repo.search(filter, page, page_size);
 }
 
 /// 按封禁类型/时间范围过滤查询
@@ -242,13 +231,12 @@ std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_ty
     filter.status     = status;
     filter.account_id = std::nullopt;
 
-    return m_blacklist_repo.search(filter, page, page_size);
+    // return m_blacklist_repo.search(filter, page, page_size);
 }
 
 /// 查询用户当前状态：任一维度 Active 则 Active，否则看是否有 Expired
 std::optional<ban::BanStatus> AdminUserService::get_user_status(uint64_t account_id) const
 {
-    
 }
 
 }  // namespace admin::service
