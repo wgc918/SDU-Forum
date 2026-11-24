@@ -6,6 +6,7 @@
 #include "auth/token_signer.h"
 #include "config/app_config.h"
 #include "repositories/token_repository.h"
+#include "services/admin/ban_service.h"
 
 namespace repository
 {
@@ -35,7 +36,8 @@ class AuthService
 {
 public:
     AuthService(repository::AccountRepository& account, repository::BlacklistRepository& blacklist,
-                repository::TokenRepository& token, const infra::JwtConfig& jwt_config);
+                repository::TokenRepository& token, admin::service::BanService& ban_service,
+                const infra::JwtConfig& jwt_config);
 
     /// @throws common::AppException
     LoginResult login(const std::string& user_id, const std::string& password);
@@ -60,6 +62,7 @@ private:
     repository::AccountRepository&   m_account_repo;
     repository::BlacklistRepository& m_blacklist_repo;
     repository::TokenRepository&     m_token_repo;
+    admin::service::BanService&      m_ban_service;
     infra::TokenSigner               m_access_signer;
     infra::TokenSigner               m_refresh_signer;
     int64_t                          m_access_ttl_seconds;

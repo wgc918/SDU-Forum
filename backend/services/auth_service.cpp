@@ -6,12 +6,15 @@
 #include <utility>
 
 #include "auth/token_signer.h"
+#include "common/ban_enums.h"
 #include "common/errors.h"
 #include "config/app_config.h"
 #include "log.h"
 #include "repositories/account_repository.h"
+#include "repositories/blacklist_repository.h"
 #include "repositories/token_repository.h"
 #include "security/password_hasher.h"
+#include "services/admin/ban_service.h"
 #include "utils/utils.h"
 
 namespace service
@@ -19,10 +22,13 @@ namespace service
 
 AuthService::AuthService(repository::AccountRepository&   account,
                          repository::BlacklistRepository& blacklist,
-                         repository::TokenRepository& token, const infra::JwtConfig& jwt_config)
+                         repository::TokenRepository&     token,
+                         admin::service::BanService&      ban_service,
+                         const infra::JwtConfig&          jwt_config)
     : m_account_repo(account),
       m_blacklist_repo(blacklist),
       m_token_repo(token),
+      m_ban_service(ban_service),
       m_access_signer(jwt_config.access_secret, jwt_config.issuer),
       m_refresh_signer(jwt_config.refresh_secret, jwt_config.issuer),
       m_access_ttl_seconds(jwt_config.access_token_ttl_seconds()),
@@ -32,15 +38,6 @@ AuthService::AuthService(repository::AccountRepository&   account,
 
 LoginResult AuthService::login(const std::string& user_id, const std::string& password)
 {
-    // if (auto ban = m_blacklist_repo.find_active_by_user_id(user_id))
-    // {
-    //     Json::Value details;
-    //     details["reason"]   = ban->reason;
-    //     details["end_time"] = ban->end_time;
-    //     throw common::AppException(common::ErrorCode::AccountBanned, "account is banned",
-    //     details);
-    // }
-
     auto account = m_account_repo.find_account_by_user_id(user_id);
 
     // 账号不存在与密码错误返回同一结果，避免泄露账号是否存在
@@ -53,6 +50,13 @@ LoginResult AuthService::login(const std::string& user_id, const std::string& pa
         LOGW("login failed: user_id=%s", user_id.c_str());
         throw common::AppException(common::ErrorCode::InvalidCredentials,
                                    "user id or password is incorrect");
+    }
+
+    auto entry = m_ban_service.is_banned(account->id, ban::BanType::Login);
+    if (entry.has_value())
+    {
+        LOGW("login failed: user_id=%s is banned", user_id.c_str());
+        throw common::AppException(common::ErrorCode::AccountBanned, "account is banned");
     }
 
     auto access = m_access_signer.sign(account->public_id, infra::kUserRole, m_access_ttl_seconds);
