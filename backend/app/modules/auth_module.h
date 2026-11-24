@@ -9,6 +9,7 @@
 #include "repositories/blacklist_repository.h"
 #include "repositories/connection_provider.h"
 #include "repositories/token_repository.h"
+#include "services/admin/ban_service.h"
 #include "services/auth_service.h"
 
 namespace app::modules
@@ -24,7 +25,8 @@ public:
     /// @param blacklist_repo 共享黑名单仓库
     AuthModule(const infra::AppConfig& config, repository::PooledDbConnectionProvider& db_provider,
                repository::TokenRepository&     token_repo,
-               repository::BlacklistRepository& blacklist_repo);
+               repository::BlacklistRepository& blacklist_repo,
+               admin::service::BanService&      ban_service);
     void register_routes(drogon::HttpAppFramework& app) override;
 
 private:

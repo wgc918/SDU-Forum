@@ -10,6 +10,7 @@
 #include "repositories/blacklist_repository.h"
 #include "repositories/connection_provider.h"
 #include "repositories/token_repository.h"
+#include "services/admin/ban_service.h"
 
 namespace dcp
 {
@@ -60,6 +61,9 @@ private:
     // 跨模块共享仓储：只构造一次
     repository::TokenRepository     m_token_repo;
     repository::BlacklistRepository m_blacklist_repo;
+
+    // 跨模块共享服务
+    admin::service::BanService m_ban_service;
 
     // 全局中间件：只构造并注册一次
     std::shared_ptr<middleware::AccessAuthMiddleware>       m_access_middleware;

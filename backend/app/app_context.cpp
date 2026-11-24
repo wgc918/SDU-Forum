@@ -31,6 +31,7 @@ AppContext::AppContext(const infra::AppConfig& config)
           {config.auth().refresh_token_table, config.jwt().hash_secret,
            config.jwt().refresh_token_ttl_seconds(), config.jwt().access_token_ttl_seconds()}),
       m_blacklist_repo(m_db_provider, config.auth().blacklist_table),
+      m_ban_service(m_blacklist_repo),
       m_access_middleware(
           std::make_shared<middleware::AccessAuthMiddleware>(config.jwt(), m_token_repo)),
       m_refresh_middleware(
@@ -42,7 +43,7 @@ AppContext::AppContext(const infra::AppConfig& config)
           std::make_shared<middleware::AdminRefreshAuthMiddleware>(config.jwt(), m_token_repo)),
       m_admin_role_middleware(std::make_shared<middleware::AdminRoleMiddle>()),
       m_auth_module(std::make_shared<modules::AuthModule>(m_config, m_db_provider, m_token_repo,
-                                                          m_blacklist_repo)),
+                                                          m_blacklist_repo, m_ban_service)),
       m_admin_auth_module(
           std::make_shared<modules::AdminAuthModule>(m_config, m_db_provider, m_token_repo)),
       m_admin_user_module(std::make_shared<modules::AdminUserModule>(m_blacklist_repo))
