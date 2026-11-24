@@ -9,20 +9,27 @@
 
 #include "auth/token_signer.h"
 #include "common/api_response.h"
+#include "common/ban_enums.h"
 #include "common/errors.h"
 #include "config/app_config.h"
 #include "log.h"
+#include "repositories/account_repository.h"
 #include "repositories/token_repository.h"
+#include "services/admin/ban_service.h"
 #include "utils/utils.h"
 
 namespace middleware
 {
 
-AuthMiddleware::AuthMiddleware(const infra::JwtConfig&      config,
-                               repository::TokenRepository& token_repo, bool is_access)
+AuthMiddleware::AuthMiddleware(const infra::JwtConfig&        config,
+                               repository::TokenRepository&   token_repo,
+                               repository::AccountRepository& account_repo,
+                               admin::service::BanService& ban_service, bool is_access)
     : m_refresh_signer(config.refresh_secret, config.issuer),
       m_access_signer(config.access_secret, config.issuer),
       m_token_repo(token_repo),
+      m_account_repo(account_repo),
+      m_ban_service(ban_service),
       m_is_access(is_access)
 {
 }
@@ -74,14 +81,25 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
         return;
     }
 
+    auto account = m_account_repo.find_account_by_public_id(payload->sub);
+
+    auto entry = m_ban_service.is_banned(account->id, ban::BanType::All);
+    if (entry.has_value())
+    {
+        LOGW("account is banned all ,user_id=%s", account->user_id.c_str());
+        mcb(common::error_response(common::ErrorCode::AccountBanned, "account is banned all"));
+    }
+
     req->attributes()->insert(kUserIdAttribute, payload->sub);
     req->attributes()->insert(kUserRoleAttribute, payload->role);
     next_cb(std::move(mcb));
 }
 
-AccessAuthMiddleware::AccessAuthMiddleware(const infra::JwtConfig&      config,
-                                           repository::TokenRepository& token_repo)
-    : AuthMiddleware(config, token_repo, true)
+AccessAuthMiddleware::AccessAuthMiddleware(const infra::JwtConfig&        config,
+                                           repository::TokenRepository&   token_repo,
+                                           repository::AccountRepository& account_repo,
+                                           admin::service::BanService&    ban_service)
+    : AuthMiddleware(config, token_repo, account_repo, ban_service, true)
 {
 }
 
@@ -92,9 +110,11 @@ void AccessAuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
     AuthMiddleware::invoke(req, std::move(next_cb), std::move(mcb));
 }
 
-RefreshAuthMiddleware::RefreshAuthMiddleware(const infra::JwtConfig&      config,
-                                             repository::TokenRepository& token_repo)
-    : AuthMiddleware(config, token_repo, false)
+RefreshAuthMiddleware::RefreshAuthMiddleware(const infra::JwtConfig&        config,
+                                             repository::TokenRepository&   token_repo,
+                                             repository::AccountRepository& account_repo,
+                                             admin::service::BanService&    ban_service)
+    : AuthMiddleware(config, token_repo, account_repo, ban_service, false)
 {
 }
 

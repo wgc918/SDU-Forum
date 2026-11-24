@@ -7,6 +7,7 @@
 #include "config/app_config.h"
 #include "modules/auth_module.h"
 #include "redis-pool/RedisConnectionPool.h"
+#include "repositories/account_repository.h"
 #include "repositories/blacklist_repository.h"
 #include "repositories/connection_provider.h"
 #include "repositories/token_repository.h"
@@ -61,6 +62,7 @@ private:
     // 跨模块共享仓储：只构造一次
     repository::TokenRepository     m_token_repo;
     repository::BlacklistRepository m_blacklist_repo;
+    repository::AccountRepository   m_account_repo;
 
     // 跨模块共享服务
     admin::service::BanService m_ban_service;

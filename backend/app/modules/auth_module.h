@@ -23,13 +23,14 @@ public:
     /// @param db_provider 共享数据库连接提供者
     /// @param token_repo 共享令牌仓库
     /// @param blacklist_repo 共享黑名单仓库
-    AuthModule(const infra::AppConfig& config, repository::PooledDbConnectionProvider& db_provider,
-               repository::TokenRepository& token_repo, admin::service::BanService& ban_service);
+    AuthModule(const infra::AppConfig& config, repository::TokenRepository& token_repo,
+               repository::AccountRepository& account_repo,
+               admin::service::BanService&    ban_service);
     void register_routes(drogon::HttpAppFramework& app) override;
 
 private:
-    repository::AccountRepository m_account_repository;
-    service::AuthService          m_service;
-    controller::AuthController    m_controller;
+    repository::AccountRepository& m_account_repository;
+    service::AuthService           m_service;
+    controller::AuthController     m_controller;
 };
 }  // namespace app::modules

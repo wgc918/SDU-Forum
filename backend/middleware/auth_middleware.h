@@ -8,7 +8,9 @@
 
 #include "auth/token_signer.h"
 #include "config/app_config.h"
+#include "repositories/account_repository.h"
 #include "repositories/token_repository.h"
+#include "services/admin/ban_service.h"
 
 namespace middleware
 {
@@ -27,23 +29,28 @@ class AuthMiddleware
 {
 public:
     AuthMiddleware(const infra::JwtConfig& config, repository::TokenRepository& token_repo,
-                   bool is_access);
+                   repository::AccountRepository& account_repo,
+                   admin::service::BanService& ban_service, bool is_access);
 
     void invoke(const drogon::HttpRequestPtr& req, drogon::MiddlewareNextCallback&& next_cb,
                 drogon::MiddlewareCallback&& mcb);
 
 private:
-    infra::TokenSigner           m_refresh_signer;
-    infra::TokenSigner           m_access_signer;
-    repository::TokenRepository& m_token_repo;
-    bool                         m_is_access;  // ture 校验access_token ,否则校验refresh_token
+    infra::TokenSigner             m_refresh_signer;
+    infra::TokenSigner             m_access_signer;
+    repository::TokenRepository&   m_token_repo;
+    repository::AccountRepository& m_account_repo;
+    admin::service::BanService&    m_ban_service;
+    bool                           m_is_access;  // ture 校验access_token ,否则校验refresh_token
 };
 
 class AccessAuthMiddleware : public drogon::HttpMiddleware<AccessAuthMiddleware, false>,
                              public AuthMiddleware
 {
 public:
-    AccessAuthMiddleware(const infra::JwtConfig& config, repository::TokenRepository& token_repo);
+    AccessAuthMiddleware(const infra::JwtConfig& config, repository::TokenRepository& token_repo,
+                         repository::AccountRepository& account_repo,
+                         admin::service::BanService&    ban_service);
 
     void invoke(const drogon::HttpRequestPtr& req, drogon::MiddlewareNextCallback&& next_cb,
                 drogon::MiddlewareCallback&& mcb) override;
@@ -53,7 +60,9 @@ class RefreshAuthMiddleware : public drogon::HttpMiddleware<RefreshAuthMiddlewar
                               public AuthMiddleware
 {
 public:
-    RefreshAuthMiddleware(const infra::JwtConfig& config, repository::TokenRepository& token_repo);
+    RefreshAuthMiddleware(const infra::JwtConfig& config, repository::TokenRepository& token_repo,
+                          repository::AccountRepository& account_repo,
+                          admin::service::BanService&    ban_service);
 
     void invoke(const drogon::HttpRequestPtr& req, drogon::MiddlewareNextCallback&& next_cb,
                 drogon::MiddlewareCallback&& mcb) override;
