@@ -53,6 +53,43 @@ std::optional<AccountRecord> AccountRepository::find_account_by_user_id(const st
     }
 }
 
+std::optional<AccountRecord> AccountRepository::find_account_by_public_id(
+    const std::string& public_id)
+{
+    auto conn = m_db_provider.acquire();
+    if (!conn)
+        throw common::AppException(common::ErrorCode::DatabaseError,
+                                   "database connection unavailable");
+
+    try
+    {
+        conn->prepare_statement("SELECT id, user_id, password_hash, salt, iterations FROM " +
+                                m_account_table + " WHERE public_id = ?");
+        conn->set_string(1, public_id);
+
+        std::unique_ptr<dcp::IResultSet> result(conn->execute_query());
+        if (!result)
+            throw common::AppException(common::ErrorCode::DatabaseError,
+                                       "database query returned no result set");
+        if (!result->next())
+            return std::nullopt;
+
+        AccountRecord record;
+        record.id            = result->get_uint64("id");
+        record.public_id     = public_id;
+        record.user_id       = result->get_string("user_id");
+        record.password_hash = result->get_string("password_hash");
+        record.salt          = result->get_string("salt");
+        record.iterations    = result->get_int("iterations");
+        return record;
+    }
+    catch (const sql::SQLException& e)
+    {
+        LOGE("query account failed: %s", e.what());
+        throw common::AppException(common::ErrorCode::DatabaseError, "database query failed");
+    }
+}
+
 bool AccountRepository::insert_account_by_user_id(const std::string&   user_id,
                                                   const AccountRecord& account)
 {

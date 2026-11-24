@@ -13,6 +13,7 @@ struct AccountRecord
 {
     uint64_t    id;
     std::string public_id;
+    std::string user_id;
     std::string password_hash;
     std::string salt;
     int         iterations;
@@ -26,6 +27,8 @@ public:
 
     /// @throws common::AppException 数据库不可用
     std::optional<AccountRecord> find_account_by_user_id(const std::string& user_id);
+
+    std::optional<AccountRecord> find_account_by_public_id(const std::string& public_id);
 
     /// @throws common::AppException 数据库不可用
     bool insert_account_by_user_id(const std::string& user_id, const AccountRecord& account);
