@@ -82,12 +82,19 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
     }
 
     auto account = m_account_repo.find_account_by_public_id(payload->sub);
+    if (!account)
+    {
+        LOGW("token subject not found: %s", req->path().c_str());
+        mcb(common::error_response(common::ErrorCode::Unauthorized, "account not found"));
+        return;
+    }
 
     auto entry = m_ban_service.is_banned(account->id, ban::BanType::All);
     if (entry.has_value())
     {
         LOGW("account is banned all ,user_id=%s", account->user_id.c_str());
         mcb(common::error_response(common::ErrorCode::AccountBanned, "account is banned all"));
+        return;
     }
 
     req->attributes()->insert(kUserIdAttribute, payload->sub);

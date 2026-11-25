@@ -20,12 +20,14 @@ void RoleMiddleware::invoke(const drogon::HttpRequestPtr&    req,
     {
         LOGW("current role is empty");
         mcb(common::error_response(common::ErrorCode::Forbidden, "current role is empty"));
+        return;
     }
 
     if (cur != m_role)
     {
         LOGW("current role is not matched");
         mcb(common::error_response(common::ErrorCode::Forbidden, "current role is not matched"));
+        return;
     }
 
     next_cb(std::move(mcb));
