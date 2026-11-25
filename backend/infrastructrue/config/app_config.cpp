@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 
 #include "ini.h"
 
@@ -54,9 +55,9 @@ std::string expand_env(const std::string& raw)
     return out;
 }
 
-const IniFile::Section& section_of(const std::string& name)
+IniFile::Section& section_of(const std::string& name)
 {
-    static const IniFile::Section kEmpty;
+    static IniFile::Section kEmpty;
     try
     {
         return IniFile::instance()[name];
@@ -76,30 +77,6 @@ std::string string_of(const IniFile::Section& section, const std::string& key,
     return expand_env(it->second.val());
 }
 
-int int_of(const IniFile::Section& section, const std::string& key, int fallback)
-{
-    std::string raw = string_of(section, key, "");
-    if (raw.empty())
-        return fallback;
-
-    try
-    {
-        return std::stoi(raw);
-    }
-    catch (const std::exception&)
-    {
-        throw std::runtime_error("config item [" + key + "] is not a valid integer: " + raw);
-    }
-}
-
-bool bool_of(const IniFile::Section& section, const std::string& key, bool fallback)
-{
-    std::string raw = string_of(section, key, "");
-    if (raw.empty())
-        return fallback;
-    return raw == "true" || raw == "TRUE" || raw == "1";
-}
-
 }  // namespace
 
 AppConfig& AppConfig::instance()
@@ -117,69 +94,118 @@ void AppConfig::load(const std::string& path)
 
     IniFile::instance().load(path);
 
-    const auto& server  = section_of("server");
-    m_server.address    = string_of(server, "address", m_server.address);
-    m_server.port       = static_cast<uint16_t>(int_of(server, "port", m_server.port));
-    m_server.thread_num = static_cast<size_t>(int_of(server, "thread_num", 4));
+    auto& server        = section_of("server");
+    m_server.address    = std::string(server["address"]);
+    m_server.port       = static_cast<uint16_t>(static_cast<int>(server["port"]));
+    m_server.thread_num = static_cast<size_t>(static_cast<int>(server["thread_num"]));
 
-    const auto& logging = section_of("log");
-    m_logging.level     = string_of(logging, "level", m_logging.level);
-    m_logging.file      = string_of(logging, "file", m_logging.file);
-    m_logging.console   = bool_of(logging, "console", m_logging.console);
-    m_logging.max_lines = static_cast<size_t>(int_of(logging, "max_lines", 100000));
+    auto& logging       = section_of("log");
+    m_logging.level     = std::string(logging["level"]);
+    m_logging.file      = std::string(logging["file"]);
+    m_logging.console   = logging["console"];
+    m_logging.max_lines = static_cast<size_t>(static_cast<int>(logging["max_lines"]));
 
-    const auto& database     = section_of("database");
-    m_database.host          = string_of(database, "host", m_database.host);
-    m_database.port          = static_cast<uint16_t>(int_of(database, "port", m_database.port));
-    m_database.user          = string_of(database, "user", "");
-    m_database.password      = string_of(database, "password", "");
-    m_database.dbname        = string_of(database, "dbname", "");
-    m_database.pool_min      = int_of(database, "pool_min", m_database.pool_min);
-    m_database.pool_max      = int_of(database, "pool_max", m_database.pool_max);
-    m_database.max_idle_time = int_of(database, "max_idle_time", m_database.max_idle_time);
-    m_database.connection_timeout =
-        int_of(database, "connection_timeout_ms", m_database.connection_timeout);
-    m_database.op_num = int_of(database, "op_num", m_database.op_num);
+    auto& database                = section_of("database");
+    m_database.host               = std::string(database["host"]);
+    m_database.port               = static_cast<uint16_t>(static_cast<int>(database["port"]));
+    m_database.user               = std::string(database["user"]);
+    m_database.password           = string_of(database, "password", "");
+    m_database.dbname             = std::string(database["dbname"]);
+    m_database.pool_min           = database["pool_min"];
+    m_database.pool_max           = database["pool_max"];
+    m_database.max_idle_time      = database["max_idle_time"];
+    m_database.connection_timeout = database["connection_timeout_ms"];
+    m_database.op_num             = database["op_num"];
 
-    const auto& auth           = section_of("auth");
-    m_jwt.issuer               = string_of(auth, "issuer", "SDU_Forum");
-    m_jwt.access_secret        = string_of(auth, "access_jwt_secret", "");
-    m_jwt.refresh_secret       = string_of(auth, "refresh_jwt_secret", "");
-    m_jwt.admin_access_secret  = string_of(auth, "admin_access_secret", "");
-    m_jwt.admin_refresh_secret = string_of(auth, "admin_refresh_secret", "");
-    m_jwt.access_token_minutes = int_of(auth, "access_token_minutes", 60);
-    m_jwt.refresh_token_hours  = int_of(auth, "refresh_token_hours", 168);
-    m_auth.account_table       = string_of(auth, "account_table", m_auth.account_table);
-    m_auth.blacklist_table     = string_of(auth, "blacklist_table", m_auth.blacklist_table);
-    m_auth.admin_account_table = string_of(auth, "admin_account_table", m_auth.admin_account_table);
+    auto& jwt                  = section_of("jwt");
+    m_jwt.issuer               = std::string(jwt["issuer"]);
+    m_jwt.access_secret        = string_of(jwt, "access_jwt_secret", "");
+    m_jwt.refresh_secret       = string_of(jwt, "refresh_jwt_secret", "");
+    m_jwt.admin_access_secret  = string_of(jwt, "admin_access_jwt_secret", "");
+    m_jwt.admin_refresh_secret = string_of(jwt, "admin_refresh_jwt_secret", "");
+    m_jwt.hash_secret          = string_of(jwt, "hash_secret", "");
+    m_jwt.access_token_ttl_m   = jwt["access_token_ttl"];
+    m_jwt.refresh_token_ttl_h  = jwt["refresh_token_ttl"];
 
-    const auto& redis = section_of("redis");
-    m_redis.host      = string_of(redis, "host", m_redis.host);
-    m_redis.port      = int_of(redis, "port", m_redis.port);
-    m_redis.password  = string_of(redis, "passward", "");
-    m_redis.db        = int_of(redis, "db", m_redis.db);
+    auto& table                 = section_of("tables");
+    m_table.account_table       = std::string(table["account_table"]);
+    m_table.blacklist_table     = std::string(table["blacklist_table"]);
+    m_table.refresh_token_table = std::string(table["refresh_token_table"]);
+    m_table.admin_account_table = std::string(table["admin_account_table"]);
+
+    auto& redis      = section_of("redis");
+    m_redis.host     = std::string(redis["host"]);
+    m_redis.port     = static_cast<uint16_t>(static_cast<int>(redis["port"]));
+    m_redis.password = string_of(redis, "password", "");
+    m_redis.db       = redis["db"];
 
     validate();
 }
 
 void AppConfig::validate() const
 {
+    if (m_server.address.empty())
+        throw std::runtime_error("config item [server.address] is required");
     if (m_server.port == 0)
         throw std::runtime_error("config item [server.port] is invalid");
+    if (m_server.thread_num == 0)
+        throw std::runtime_error("config item [server.thread_num] is invalid");
+
+    if (m_logging.level.empty())
+        throw std::runtime_error("config item [log.level] is required");
+    if (!m_logging.console && m_logging.file.empty())
+        throw std::runtime_error("config items [log.console/log.file] are invalid");
+
+    if (m_database.host.empty())
+        throw std::runtime_error("config item [database.host] is required");
+    if (m_database.port == 0)
+        throw std::runtime_error("config item [database.port] is invalid");
     if (m_database.user.empty() || m_database.dbname.empty())
         throw std::runtime_error("config items [database.user] and [database.dbname] are required");
     if (m_database.pool_min <= 0 || m_database.pool_max < m_database.pool_min)
         throw std::runtime_error("config items [database.pool_min/pool_max] are invalid");
+    if (m_database.max_idle_time <= 0)
+        throw std::runtime_error("config item [database.max_idle_time] is invalid");
+    if (m_database.connection_timeout <= 0)
+        throw std::runtime_error("config item [database.connection_timeout_ms] is invalid");
+    if (m_database.op_num <= 0)
+        throw std::runtime_error("config item [database.op_num] is invalid");
+
+    if (m_jwt.issuer.empty())
+        throw std::runtime_error("config item [jwt.issuer] is required");
     if (m_jwt.access_secret.empty() || m_jwt.refresh_secret.empty())
         throw std::runtime_error(
-            "config items [auth.access_jwt_secret/refresh_jwt_secret] are "
+            "config items [jwt.access_jwt_secret/refresh_jwt_secret] are "
             "required");
-    if (m_jwt.access_token_minutes <= 0 || m_jwt.refresh_token_hours <= 0)
+    if (m_jwt.admin_access_secret.empty() || m_jwt.admin_refresh_secret.empty())
         throw std::runtime_error(
-            "config items [auth.access_token_minutes/refresh_token_hours] "
+            "config items "
+            "[jwt.admin_access_jwt_secret/admin_refresh_jwt_secret] are "
+            "required");
+    if (m_jwt.hash_secret.empty())
+        throw std::runtime_error("config item [jwt.hash_secret] is required");
+    if (m_jwt.access_token_ttl_m <= 0 || m_jwt.refresh_token_ttl_h <= 0)
+        throw std::runtime_error(
+            "config items [jwt.access_token_ttl/refresh_token_ttl] "
             "are invalid");
-    if (m_auth.account_table.empty() || m_auth.blacklist_table.empty())
-        throw std::runtime_error("config items [auth.account_table/blacklist_table] are required");
+
+    if (m_table.account_table.empty())
+        throw std::runtime_error("config item [tables.account_table] is required");
+    if (m_table.blacklist_table.empty())
+        throw std::runtime_error("config item [tables.blacklist_table] is required");
+    if (m_table.refresh_token_table.empty())
+        throw std::runtime_error("config item [tables.refresh_token_table] is required");
+    if (m_table.admin_account_table.empty())
+        throw std::runtime_error("config item [tables.admin_account_table] is required");
+
+    if (m_redis.host.empty())
+        throw std::runtime_error("config item [redis.host] is required");
+    if (m_redis.port == 0)
+        throw std::runtime_error("config item [redis.port] is invalid");
+    if (m_redis.password.empty())
+        throw std::runtime_error("config item [redis.password] is required");
+    if (m_redis.db < 0)
+        throw std::runtime_error("config item [redis.db] is invalid");
 }
 
 const ServerConfig& AppConfig::server() const noexcept
@@ -202,9 +228,9 @@ const JwtConfig& AppConfig::jwt() const noexcept
     return m_jwt;
 }
 
-const AuthConfig& AppConfig::auth() const noexcept
+const TableNameConfig& AppConfig::table() const noexcept
 {
-    return m_auth;
+    return m_table;
 }
 
 const RedisConfig& AppConfig::redis() const noexcept

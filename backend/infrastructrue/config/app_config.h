@@ -45,34 +45,33 @@ struct RedisConfig
 };
 
 struct JwtConfig
-
 {
     std::string issuer;
     std::string access_secret;
     std::string refresh_secret;
     std::string admin_access_secret;
     std::string admin_refresh_secret;
-    std::string hash_secret          = "dfacadgafeqwfqvab";  // token存储时转hash使用
-    int         access_token_minutes = 60;
-    int         refresh_token_hours  = 168;
+    std::string hash_secret;                // token存储时转hash使用
+    int         access_token_ttl_m  = 60;   // 分钟
+    int         refresh_token_ttl_h = 168;  // 小时
 
     int access_token_ttl_seconds() const
     {
-        return access_token_minutes * 60;
+        return access_token_ttl_m * 60;
     }
 
     int refresh_token_ttl_seconds() const
     {
-        return refresh_token_hours * 3600;
+        return refresh_token_ttl_h * 3600;
     }
 };
 
-struct AuthConfig
+struct TableNameConfig
 {
-    std::string account_table       = "account";
-    std::string blacklist_table     = "blacklist";
-    std::string refresh_token_table = "refresh_tokens";
-    std::string admin_account_table = "admin_account";
+    std::string account_table;
+    std::string blacklist_table;
+    std::string refresh_token_table;
+    std::string admin_account_table;
 };
 
 /// 进程级配置，启动时从 INI 文件加载一次
@@ -91,7 +90,7 @@ public:
     const LoggingConfig& logging() const noexcept;
     const DatabaseConfig& database() const noexcept;
     const JwtConfig& jwt() const noexcept;
-    const AuthConfig& auth() const noexcept;
+    const TableNameConfig& table() const noexcept;
     const RedisConfig& redis() const noexcept;
 
 private:
@@ -99,12 +98,12 @@ private:
 
     void validate() const;
 
-    ServerConfig   m_server;
-    LoggingConfig  m_logging;
-    DatabaseConfig m_database;
-    JwtConfig      m_jwt;
-    AuthConfig     m_auth;
-    RedisConfig    m_redis;
+    ServerConfig    m_server;
+    LoggingConfig   m_logging;
+    DatabaseConfig  m_database;
+    JwtConfig       m_jwt;
+    TableNameConfig m_table;
+    RedisConfig     m_redis;
 };
 
 }  // namespace infra

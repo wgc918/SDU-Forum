@@ -1,15 +1,16 @@
 #include "auth_module.h"
 
 #include "config/app_config.h"
+#include "repositories/connection_provider.h"
 #include "routes/routes.h"
 
 namespace app::modules
 {
 
-AdminAuthModule::AdminAuthModule(const infra::AppConfig&                 config,
-                                 repository::PooledDbConnectionProvider& db_provider,
-                                 repository::TokenRepository&            token_repo)
-    : m_account_repository(db_provider, config.auth().admin_account_table),
+AdminAuthModule::AdminAuthModule(const infra::AppConfig&            config,
+                                 repository::IDbConnectionProvider& db_provider,
+                                 repository::TokenRepository&       token_repo)
+    : m_account_repository(db_provider, config.table().admin_account_table),
       m_service(m_account_repository, token_repo, config.jwt()),
       m_controller(m_service)
 {

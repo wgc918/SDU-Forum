@@ -58,11 +58,11 @@ repository::TokenStoreConfig make_token_config()
 infra::JwtConfig make_jwt_config()
 {
     infra::JwtConfig config;
-    config.issuer               = kIssuer;
-    config.access_secret        = kAccessSecret;
-    config.refresh_secret       = kRefreshSecret;
-    config.access_token_minutes = kAccessTtlSeconds / 60;
-    config.refresh_token_hours  = kRefreshTtlSeconds / 3600;
+    config.issuer              = kIssuer;
+    config.access_secret       = kAccessSecret;
+    config.refresh_secret      = kRefreshSecret;
+    config.access_token_ttl_m  = kAccessTtlSeconds / 60;
+    config.refresh_token_ttl_h = kRefreshTtlSeconds / 3600;
     return config;
 }
 
@@ -103,7 +103,7 @@ int64_t now_seconds()
 void fill_account_row(test_support::StubRowValues& row, const std::string& public_id,
                       const std::string& password)
 {
-    const infra::PasswordHash stored = infra::hash_password(password, kTestIterations);
+    const infra::PasswordHash stored    = infra::hash_password(password, kTestIterations);
     row.uint64_columns["id"]            = 1;
     row.string_columns["public_id"]     = public_id;
     row.string_columns["password_hash"] = stored.hash;
@@ -113,7 +113,8 @@ void fill_account_row(test_support::StubRowValues& row, const std::string& publi
 
 /// 让 Stub/Spy 数据库替身返回指定账号
 template <typename DbProvider>
-void provide_valid_account(DbProvider& db, const std::string& public_id, const std::string& password)
+void provide_valid_account(DbProvider& db, const std::string& public_id,
+                           const std::string& password)
 {
     db.connection().state().has_row = true;
     fill_account_row(*db.connection().state().row, public_id, password);
@@ -186,7 +187,7 @@ TEST_SUITE("AuthService")
         AuthEnv<test_support::StubDbProvider, test_support::FakeCacheProvider> env;
         provide_valid_account(env.db, "usr_alice", "secret");
 
-        auto result = env.auth.login("alice", "secret");
+        auto result  = env.auth.login("alice", "secret");
         auto payload = verify_access(result.access_token);
 
         REQUIRE(payload.has_value());
@@ -202,7 +203,7 @@ TEST_SUITE("AuthService")
         AuthEnv<test_support::StubDbProvider, test_support::FakeCacheProvider> env;
         provide_valid_account(env.db, "usr_alice", "secret");
 
-        auto result = env.auth.login("alice", "secret");
+        auto result  = env.auth.login("alice", "secret");
         auto payload = verify_refresh(result.refresh_token);
 
         REQUIRE(payload.has_value());
@@ -285,7 +286,7 @@ TEST_SUITE("AuthService")
     TEST_CASE("signUp returns generated usr public id")
     {
         AuthEnv<test_support::StubDbProvider, test_support::DummyCacheProvider> env;
-        env.db.connection().state().has_row    = false;
+        env.db.connection().state().has_row     = false;
         env.db.connection().state().update_rows = 1;
 
         std::string public_id = env.auth.signUp("alice", "secret");
@@ -318,10 +319,9 @@ TEST_SUITE("AuthService")
         CHECK(state.prepared_sql ==
               "INSERT INTO account_it (public_id,user_id,password_hash,salt,iterations) "
               "VALUES(?,?,?,?,?)");
-        CHECK(state.events ==
-              std::vector<std::string>{"prepare", "bind_string", "query", "prepare", "bind_string",
-                                       "bind_string", "bind_string", "bind_string", "bind_int",
-                                       "update"});
+        CHECK(state.events == std::vector<std::string>{"prepare", "bind_string", "query", "prepare",
+                                                       "bind_string", "bind_string", "bind_string",
+                                                       "bind_string", "bind_int", "update"});
     }
 
     TEST_CASE("signUp throws InvalidParam when user id already exists")
@@ -354,7 +354,7 @@ TEST_SUITE("AuthService")
     TEST_CASE("signUp throws DatabaseError on sql failure")
     {
         AuthEnv<test_support::StubDbProvider, test_support::DummyCacheProvider> env;
-        env.db.connection().state().has_row        = false;
+        env.db.connection().state().has_row         = false;
         env.db.connection().state().throw_on_update = true;
 
         CHECK(throws_with_code([&env] { env.auth.signUp("alice", "secret"); },
@@ -371,9 +371,8 @@ TEST_SUITE("AuthService")
         const auto refresh = sign_refresh("usr_alice");
         env.cache.fake().put(hash_of(refresh.value), hash_of(refresh.value), kRefreshTtlSeconds);
 
-        CHECK(throws_with_code(
-            [&env, &refresh] { env.auth.logout(refresh.value, "access-token"); },
-            common::ErrorCode::Unauthorized));
+        CHECK(throws_with_code([&env, &refresh] { env.auth.logout(refresh.value, "access-token"); },
+                               common::ErrorCode::Unauthorized));
     }
 
     TEST_CASE("logout throws Unauthorized when refresh token is invalid")
@@ -407,9 +406,8 @@ TEST_SUITE("AuthService")
         CHECK(state.datetime_params[0].first == 2);
         CHECK(state.datetime_params[0].second == utils::timestamp_to_string(refresh.expires_at));
         CHECK(state.update_calls == 1);
-        CHECK(state.events ==
-              std::vector<std::string>{"prepare", "bind_string", "query", "prepare", "bind_string",
-                                       "bind_datetime", "update"});
+        CHECK(state.events == std::vector<std::string>{"prepare", "bind_string", "query", "prepare",
+                                                       "bind_string", "bind_datetime", "update"});
     }
 
     TEST_CASE("logout throws DatabaseError when refresh token cannot be persisted")
@@ -419,9 +417,8 @@ TEST_SUITE("AuthService")
         env.db.connection().state().update_rows = 0;
         const auto refresh                      = sign_refresh("usr_alice");
 
-        CHECK(throws_with_code(
-            [&env, &refresh] { env.auth.logout(refresh.value, "access-token"); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&env, &refresh] { env.auth.logout(refresh.value, "access-token"); },
+                               common::ErrorCode::DatabaseError));
         CHECK(env.cache.fake().state_ptr()->store.empty());
     }
 
@@ -433,9 +430,8 @@ TEST_SUITE("AuthService")
         env.cache.connection().state().set_result = false;
         const auto refresh                        = sign_refresh("usr_alice");
 
-        CHECK(throws_with_code(
-            [&env, &refresh] { env.auth.logout(refresh.value, "access-token"); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&env, &refresh] { env.auth.logout(refresh.value, "access-token"); },
+                               common::ErrorCode::DatabaseError));
     }
 
     TEST_CASE("logout throws DatabaseError when db unavailable")
@@ -443,9 +439,8 @@ TEST_SUITE("AuthService")
         AuthEnv<test_support::UnavailableDbProvider, test_support::FakeCacheProvider> env;
         const auto refresh = sign_refresh("usr_alice");
 
-        CHECK(throws_with_code(
-            [&env, &refresh] { env.auth.logout(refresh.value, "access-token"); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&env, &refresh] { env.auth.logout(refresh.value, "access-token"); },
+                               common::ErrorCode::DatabaseError));
     }
 
     // ============================================
@@ -456,9 +451,9 @@ TEST_SUITE("AuthService")
     {
         AuthEnv<test_support::SpyDbProvider, test_support::FakeCacheProvider> env;
 
-        CHECK(throws_with_code(
-            [&env] { env.auth.refresh_token("not-a-token", "old-access", true); },
-            common::ErrorCode::Unauthorized));
+        CHECK(throws_with_code([&env]
+                               { env.auth.refresh_token("not-a-token", "old-access", true); },
+                               common::ErrorCode::Unauthorized));
         CHECK(env.db.connection().state().prepare_calls == 0);
         CHECK(env.cache.fake().state_ptr()->store.empty());
     }
@@ -468,11 +463,10 @@ TEST_SUITE("AuthService")
         AuthEnv<test_support::StubDbProvider, test_support::FakeCacheProvider> env;
         const auto wrong_key_token = sign_access("usr_alice");
 
-        CHECK(throws_with_code(
-            [&env, &wrong_key_token] {
-                env.auth.refresh_token(wrong_key_token.value, "old-access", true);
-            },
-            common::ErrorCode::Unauthorized));
+        CHECK(
+            throws_with_code([&env, &wrong_key_token]
+                             { env.auth.refresh_token(wrong_key_token.value, "old-access", true); },
+                             common::ErrorCode::Unauthorized));
     }
 
     TEST_CASE("refresh_token issues new access and refresh tokens when refreshing")
@@ -519,9 +513,8 @@ TEST_SUITE("AuthService")
         CHECK(state.datetime_params[0].second ==
               utils::timestamp_to_string(new_payload->expires_at));
         CHECK(state.update_calls == 1);
-        CHECK(state.events ==
-              std::vector<std::string>{"prepare", "bind_string", "query", "prepare", "bind_string",
-                                       "bind_datetime", "update"});
+        CHECK(state.events == std::vector<std::string>{"prepare", "bind_string", "query", "prepare",
+                                                       "bind_string", "bind_datetime", "update"});
     }
 
     TEST_CASE("refresh_token refreshes access token only when not refreshing")
@@ -562,11 +555,10 @@ TEST_SUITE("AuthService")
         const auto old_refresh = sign_refresh("usr_alice");
         const auto old_access  = sign_access("usr_alice");
 
-        CHECK(throws_with_code(
-            [&env, &old_refresh, &old_access] {
-                env.auth.refresh_token(old_refresh.value, old_access.value, true);
-            },
-            common::ErrorCode::DatabaseError));
+        CHECK(
+            throws_with_code([&env, &old_refresh, &old_access]
+                             { env.auth.refresh_token(old_refresh.value, old_access.value, true); },
+                             common::ErrorCode::DatabaseError));
     }
 
     // ============================================
@@ -579,9 +571,9 @@ TEST_SUITE("AuthService")
         const auto refresh = sign_refresh("usr_alice");
         env.cache.fake().put(hash_of(refresh.value), hash_of(refresh.value), kRefreshTtlSeconds);
 
-        CHECK(throws_with_code(
-            [&env, &refresh] { env.auth.logoff("usr_alice", refresh.value, "access-token"); },
-            common::ErrorCode::Unauthorized));
+        CHECK(throws_with_code([&env, &refresh]
+                               { env.auth.logoff("usr_alice", refresh.value, "access-token"); },
+                               common::ErrorCode::Unauthorized));
     }
 
     TEST_CASE("logoff throws Unauthorized when refresh token is invalid")
@@ -589,9 +581,9 @@ TEST_SUITE("AuthService")
         AuthEnv<test_support::StubDbProvider, test_support::FakeCacheProvider> env;
         env.db.connection().state().has_row = false;
 
-        CHECK(throws_with_code(
-            [&env] { env.auth.logoff("usr_alice", "not-a-token", "access-token"); },
-            common::ErrorCode::Unauthorized));
+        CHECK(throws_with_code([&env]
+                               { env.auth.logoff("usr_alice", "not-a-token", "access-token"); },
+                               common::ErrorCode::Unauthorized));
     }
 
     TEST_CASE("logoff deletes account and revokes both tokens")
@@ -614,9 +606,9 @@ TEST_SUITE("AuthService")
         CHECK(state.string_params[1].second == "usr_alice");
         CHECK(state.string_params[2].second == hash_of(refresh.value));
         CHECK(state.update_calls == 2);
-        CHECK(state.events ==
-              std::vector<std::string>{"prepare", "bind_string", "query", "prepare", "bind_string",
-                                       "update", "prepare", "bind_string", "bind_datetime", "update"});
+        CHECK(state.events == std::vector<std::string>{"prepare", "bind_string", "query", "prepare",
+                                                       "bind_string", "update", "prepare",
+                                                       "bind_string", "bind_datetime", "update"});
     }
 
     TEST_CASE("logoff throws DatabaseError when no account row deleted")
@@ -626,9 +618,9 @@ TEST_SUITE("AuthService")
         env.db.connection().state().update_rows = 0;
         const auto refresh                      = sign_refresh("usr_alice");
 
-        CHECK(throws_with_code(
-            [&env, &refresh] { env.auth.logoff("usr_alice", refresh.value, "access-token"); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&env, &refresh]
+                               { env.auth.logoff("usr_alice", refresh.value, "access-token"); },
+                               common::ErrorCode::DatabaseError));
         CHECK(env.cache.fake().state_ptr()->store.empty());
     }
 
@@ -640,9 +632,9 @@ TEST_SUITE("AuthService")
         env.cache.connection().state().set_result = false;
         const auto refresh                        = sign_refresh("usr_alice");
 
-        CHECK(throws_with_code(
-            [&env, &refresh] { env.auth.logoff("usr_alice", refresh.value, "access-token"); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&env, &refresh]
+                               { env.auth.logoff("usr_alice", refresh.value, "access-token"); },
+                               common::ErrorCode::DatabaseError));
     }
 
     TEST_CASE("logoff throws DatabaseError when db unavailable")
@@ -650,8 +642,8 @@ TEST_SUITE("AuthService")
         AuthEnv<test_support::UnavailableDbProvider, test_support::FakeCacheProvider> env;
         const auto refresh = sign_refresh("usr_alice");
 
-        CHECK(throws_with_code(
-            [&env, &refresh] { env.auth.logoff("usr_alice", refresh.value, "access-token"); },
-            common::ErrorCode::DatabaseError));
+        CHECK(throws_with_code([&env, &refresh]
+                               { env.auth.logoff("usr_alice", refresh.value, "access-token"); },
+                               common::ErrorCode::DatabaseError));
     }
 }

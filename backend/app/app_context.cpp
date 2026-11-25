@@ -28,10 +28,10 @@ AppContext::AppContext(const infra::AppConfig& config)
       m_cache_provider(*m_redis_pool),
       m_token_repo(
           m_db_provider, m_cache_provider,
-          {config.auth().refresh_token_table, config.jwt().hash_secret,
+          {config.table().refresh_token_table, config.jwt().hash_secret,
            config.jwt().refresh_token_ttl_seconds(), config.jwt().access_token_ttl_seconds()}),
-      m_blacklist_repo(m_db_provider, config.auth().blacklist_table),
-      m_account_repo(m_db_provider, config.auth().account_table),
+      m_blacklist_repo(m_db_provider, config.table().blacklist_table),
+      m_account_repo(m_db_provider, config.table().account_table),
       m_ban_service(m_blacklist_repo),
       m_access_middleware(std::make_shared<middleware::AccessAuthMiddleware>(
           config.jwt(), m_token_repo, m_account_repo, m_ban_service)),
