@@ -21,7 +21,7 @@ public:
     /// @param db_provider 共享数据库连接提供者
     /// @param token_repo 共享令牌仓库
     AdminAuthModule(const infra::AppConfig& config,
-                    repository::PooledDbConnectionProvider& db_provider,
+                    repository::IDbConnectionProvider& db_provider,
                     repository::TokenRepository& token_repo);
     void register_routes(drogon::HttpAppFramework& app) override;
 

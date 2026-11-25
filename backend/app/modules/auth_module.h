@@ -6,8 +6,6 @@
 #include "./repositories/account_repository.h"
 #include "config/app_config.h"
 #include "controllers/auth_controller.h"
-#include "repositories/blacklist_repository.h"
-#include "repositories/connection_provider.h"
 #include "repositories/token_repository.h"
 #include "services/admin/ban_service.h"
 #include "services/auth_service.h"
