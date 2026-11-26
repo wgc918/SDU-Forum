@@ -184,30 +184,32 @@ void AdminUserService::unban(uint64_t account_id, const std::string& operator_id
 }
 
 /// 获取某维度的生效封禁详情
-std::optional<repository::BlacklistEntry> AdminUserService::get_active(uint64_t     account_id,
+std::optional<repository::BlacklistEntry> AdminUserService::get_deatil(uint64_t     account_id,
                                                                        ban::BanType type) const
 {
-    return m_blacklist_repo.get_active(account_id, type);
+    return m_blacklist_repo.get_detail(account_id, type);
 }
 
 /// 获取用户全部封禁历史（含已解除/已过期）
-std::vector<repository::BlacklistEntry> AdminUserService::get_ban_history(uint64_t account_id) const
+BanPageResult AdminUserService::get_ban_history(uint64_t account_id) const
 {
-    // return m_blacklist_repo.get_history(account_id);
+    return {};
 }
 
 /// 分页查询黑名单列表（仅生效中）
-std::vector<repository::BlacklistEntry> AdminUserService::list_blacklist(int page,
-                                                                         int page_size) const
+BanPageResult AdminUserService::list_blacklist(int page, int page_size) const
 {
-    // return m_blacklist_repo.list_active(page, page_size);
+    repository::BlacklistFilter filter;
+    filter.status = ban::BanStatus::Active;
+    return {};
 }
 
 /// 按封禁原因/时间范围过滤查询
-std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_reason(
-    ban::ReasonCode reason, const std::optional<std::string>& from,
-    const std::optional<std::string>& to, std::optional<ban::BanStatus> status, int page,
-    int page_size) const
+BanPageResult AdminUserService::search_blacklist_by_reason(ban::ReasonCode                   reason,
+                                                           const std::optional<std::string>& from,
+                                                           const std::optional<std::string>& to,
+                                                           std::optional<ban::BanStatus>     status,
+                                                           int page, int page_size) const
 {
     repository::BlacklistFilter filter;
     filter.reason     = reason;
@@ -216,13 +218,15 @@ std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_re
     filter.status     = status;
     filter.account_id = std::nullopt;
 
-    // return m_blacklist_repo.search(filter, page, page_size);
+    return {};
 }
 
 /// 按封禁类型/时间范围过滤查询
-std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_type(
-    ban::BanType type, const std::optional<std::string>& from, const std::optional<std::string>& to,
-    std::optional<ban::BanStatus> status, int page, int page_size) const
+BanPageResult AdminUserService::search_blacklist_by_type(ban::BanType                      type,
+                                                         const std::optional<std::string>& from,
+                                                         const std::optional<std::string>& to,
+                                                         std::optional<ban::BanStatus>     status,
+                                                         int page, int page_size) const
 {
     repository::BlacklistFilter filter;
     filter.type       = type;
@@ -231,12 +235,7 @@ std::vector<repository::BlacklistEntry> AdminUserService::search_blacklist_by_ty
     filter.status     = status;
     filter.account_id = std::nullopt;
 
-    // return m_blacklist_repo.search(filter, page, page_size);
-}
-
-/// 查询用户当前状态：任一维度 Active 则 Active，否则看是否有 Expired
-std::optional<ban::BanStatus> AdminUserService::get_user_status(uint64_t account_id) const
-{
+    return {};
 }
 
 }  // namespace admin::service

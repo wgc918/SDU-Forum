@@ -87,10 +87,7 @@ public:
     bool is_blacklisted(uint64_t account_id);
 
     /// 某维度生效详情
-    std::optional<BlacklistEntry> get_active(uint64_t account_id, ban::BanType type);
-
-    /// 全部历史（含已解除/已过期），按 banned_at DESC
-    PageResult get_history(uint64_t account_id);
+    std::optional<BlacklistEntry> get_detail(uint64_t account_id, ban::BanType type);
 
     /// 条件查询（分页），按 banned_at DESC
     PageResult search(const BlacklistFilter& filter, int page, int page_size);

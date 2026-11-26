@@ -224,7 +224,7 @@ bool BlacklistRepository::is_blacklisted(uint64_t account_id)
 }
 
 /// 某维度生效详情
-std::optional<BlacklistEntry> BlacklistRepository::get_active(uint64_t     account_id,
+std::optional<BlacklistEntry> BlacklistRepository::get_detail(uint64_t     account_id,
                                                               ban::BanType type)
 {
     auto conn = m_db_provider.acquire();
@@ -255,35 +255,6 @@ std::optional<BlacklistEntry> BlacklistRepository::get_active(uint64_t     accou
     }
 }
 
-/// 全部历史（含已解除/已过期），按 banned_at DESC
-PageResult BlacklistRepository::get_history(uint64_t account_id)
-{
-    auto conn = m_db_provider.acquire();
-    if (!conn)
-        throw common::AppException(common::ErrorCode::DatabaseError,
-                                   "database connection unavailable");
-    try
-    {
-        conn->prepare_statement("SELECT * FROM " + m_blacklist_table +
-                                " WHERE account_id=? ORDER BY banned_at DESC");
-        conn->set_uint64(1, account_id);
-
-        auto res = conn->execute_query();
-        if (!res)
-            throw common::AppException(common::ErrorCode::DatabaseError, "database no result");
-
-        std::vector<BlacklistEntry> entries;
-        while (res->next())
-            entries.push_back(read_entry(*res));
-        return {};
-    }
-    catch (const sql::SQLException& e)
-    {
-        LOGW("query blacklist failed:%s", e.what());
-        throw common::AppException(common::ErrorCode::DatabaseError, "database select failed");
-    }
-}
-
 /// 条件查询（分页），按 banned_at DESC
 PageResult BlacklistRepository::search(const BlacklistFilter& filter, int page, int page_size)
 {
@@ -294,6 +265,7 @@ PageResult BlacklistRepository::search(const BlacklistFilter& filter, int page, 
     if (!conn)
         throw common::AppException(common::ErrorCode::DatabaseError,
                                    "database connection unavailable");
+    PageResult result;
     try
     {
         std::vector<std::string> conditions;
@@ -321,21 +293,23 @@ PageResult BlacklistRepository::search(const BlacklistFilter& filter, int page, 
         if (filter.account_id)
             conditions.emplace_back("account_id =?");
 
-        std::string sql = "SELECT * FROM " + m_blacklist_table;
+        std::string sql       = "SELECT * FROM " + m_blacklist_table;
+        std::string sql_count = "SELECT COUNT(*) FROM " + m_blacklist_table;
         if (!conditions.empty())
         {
             sql += " WHERE ";
+            sql_count += " WHERE ";
             for (std::size_t i = 0; i < conditions.size(); i++)
             {
                 if (i > 0)
-                    sql += " AND ";
+                    sql += " AND ", sql_count += " AND ";
                 sql += conditions[i];
+                sql_count += conditions[i];
             }
         }
         sql += " ORDER BY banned_at DESC LIMIT ? OFFSET ?";
 
-        conn->prepare_statement(sql);
-
+        conn->prepare_statement(sql_count);
         uint16_t index = 1;
         if (filter.reason)
             conn->set_int(index++, static_cast<int>(*filter.reason));
@@ -345,19 +319,44 @@ PageResult BlacklistRepository::search(const BlacklistFilter& filter, int page, 
             conn->set_datetime(index++, *filter.from);
         if (filter.to)
             conn->set_datetime(index++, *filter.to);
-        if (filter.account_id != 0)
+        if (filter.account_id)
+            conn->set_uint64(index++, *filter.account_id);
+
+        auto res = conn->execute_query();
+        if (!res)
+            throw common::AppException(common::ErrorCode::DatabaseError, "database no result");
+
+        if (!res->next())
+            result.total = 0;
+        else
+            result.total = res->get_uint64(1);
+
+        conn->prepare_statement(sql);
+
+        index = 1;
+        if (filter.reason)
+            conn->set_int(index++, static_cast<int>(*filter.reason));
+        if (filter.type)
+            conn->set_int(index++, static_cast<int>(*filter.type));
+        if (filter.from)
+            conn->set_datetime(index++, *filter.from);
+        if (filter.to)
+            conn->set_datetime(index++, *filter.to);
+        if (filter.account_id)
             conn->set_uint64(index++, *filter.account_id);
         conn->set_int(index++, page_size);
         conn->set_int(index++, (page - 1) * page_size);
 
-        auto res = conn->execute_query();
+        res = conn->execute_query();
         if (!res)
             throw common::AppException(common::ErrorCode::DatabaseError, "database no result");
 
         std::vector<BlacklistEntry> entries;
         while (res->next())
             entries.push_back(read_entry(*res));
-        return {};
+
+        result.item = std::move(entries);
+        return result;
     }
     catch (const sql::SQLException& e)
     {
