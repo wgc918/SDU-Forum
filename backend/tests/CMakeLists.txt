@@ -128,3 +128,11 @@ set_tests_properties(AuthServiceUnit PROPERTIES
     TIMEOUT 60
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
+
+# ---------------------------------------------------------------------------
+# 集成测试（依赖真实 MySQL；Redis 缺失时相关用例跳过）
+# ---------------------------------------------------------------------------
+option(SDU_BUILD_INTEGRATION_TESTS "Build layered integration tests" ON)
+if(SDU_BUILD_INTEGRATION_TESTS)
+    add_subdirectory(integration)
+endif()
