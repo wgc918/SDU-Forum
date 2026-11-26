@@ -1,25 +1,33 @@
 # SDU-Forum 后端文档中心
 
-> 最后与代码核对日期：2026-11-24  
-> 适用代码：`backend/` 当前工作区（C++17 + Drogon）  
+
+> 最后与代码核对日期：2026-11-24
+> 适用代码：`backend/` 当前工作区（C++17 + Drogon）
 > 文档语言：中文
 
+
 本文档集用于回答三个问题：
+
 
 1. 现在**已经实现**了什么，实际行为是什么；
 2. 新增功能时**应该改哪里**，哪些东西**不能动**；
 3. 当前有哪些**未完成、临时实现或已知缺陷**。
 
+
 ---
 
+
 ## 0. 权威性声明
+
 
 - **代码是唯一事实来源**。本文档与代码不一致时，以代码为准，并应立即修正文档。
 - 文档中标注「已确认」的内容均来自对当前代码的直接阅读；标注「据代码推断」的内容表示代码依赖该行为但仓库内缺少完整定义。
 - 所有「必须」「禁止」「不得」条目均为**硬约束**，违反会破坏现有鉴权、封禁或响应契约。
 - 本目录是新增功能、Code Review、线上排障的第一入口；不要另起一份平行文档。
 
+
 ## 1. 文档地图
+
 
 | 文件 | 内容 | 什么时候看 |
 | --- | --- | --- |
@@ -34,7 +42,9 @@
 | [db_sqls.md](./db_sqls.md) | 4 张表的可执行建表 SQL 与常用语句（与 database.md 双向同步） | 初始化数据库 |
 | [sql_reference.md](./sql_reference.md) | 逐表 DDL、字段语义、业务 SQL、代码映射、历史差异存档 | 查某条 SQL 的具体实现与索引影响 |
 
+
 ## 2. 快速定位：我要做什么
+
 
 | 需求 | 主要改动位置 | 必读 | 关键提醒 |
 | --- | --- | --- | --- |
@@ -49,9 +59,12 @@
 | 调整配置项 | `config/config-dev.ini`、`infrastructrue/config/app_config.{h,cpp}`、`validate()` | [architecture.md](./architecture.md) §5 | 新必填项必须加入 `validate()` |
 | 写单元测试 | `tests/unit/`、`tests/support/test_doubles.h` | [testing.md](./testing.md) | 不得连接真实 MySQL/Redis/网络 |
 
+
 ## 3. 项目状态看板
 
+
 > 状态含义：✅ 已实现并有测试/可运行；⚠️ 部分实现或存在阻断性缺陷；❌ 未开始。
+
 
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
@@ -67,9 +80,12 @@
 | 帖子 / 评论 / 私信 / 举报 / 上传 / 用户资料 | ❌ | 尚未开始；封禁维度已为其预留 |
 | 定时任务 / 消息队列消费 | ❌ | 未开始 |
 
+
 ## 4. 当前已知高风险问题（先看这个）
 
+
 下列问题均已通过阅读当前代码确认。修复前**不要**把对应能力描述为「已完成」。
+
 
 | 编号 | 位置 | 问题 | 影响 |
 | --- | --- | --- | --- |
@@ -92,7 +108,7 @@
 | R13 | `infrastructrue/database-connection-pool` | `get_statistics()` 恒返回空结构；健康检查被注释 | 无法观测 MySQL 池状态 |
 | R14 | `services/auth_service.cpp` `logout`/`logoff` | 先查 refresh 是否吊销再验签；Redis/DB 异常按数据库错误处理 | 依赖 Redis 可用性，异常语义偏重 |
 | R15 | `services/auth_service.cpp` `refresh_token` | 验签后未判断 `account.has_value()` 就使用 `account->id` | refresh 有效但账号已注销时解引用空 optional |
-| R16 | `services/auth_service.cpp` `logoff` | `delete_account \|\| revoke_refresh \|\| revoke_access` 短路 | 删除失败时不会吊销 token（符合现状设计，但需明确） |
+| R16 | `services/auth_service.cpp` `logoff` | `delete_account || revoke_refresh || revoke_access` 短路 | 删除失败时不会吊销 token（符合现状设计，但需明确） |
 | R17 | `services/admin/user_service.cpp` `resolve_reason_text` | 自定义原因码且 `reason` 为空时用兜底文案填充 | 绕过 `CheckReasonTextConsistency`，空自定义原因不会报错 |
 | R18 | `repositories/blacklist_repository.cpp` `expire_outdated` | 已实现但**未接入任何定时任务/启动钩子** | 过期记录只能靠查询条件兜底，`status` 不会自动变 2 |
 | R19 | `middleware/auth_middleware.cpp` | `find_account_by_public_id` 后未判断 `has_value()` 就使用 `account->id` | token 有效但账号已删除时解引用空 optional |
@@ -102,7 +118,9 @@
 | R23 | `app/modules/admin/auth_module.cpp` | 直接依赖 `PooledDbConnectionProvider` 具体类型而非 `IDbConnectionProvider` | 管理员认证模块无法用接口替身做单测 |
 | R24 | `services/admin/user_service.cpp` | `get_ban_history` 返回 `vector`，Repository 返回 `PageResult`，签名不匹配 | 修复 R2/R3 时必须统一返回类型（Service 取 `.item`） |
 
+
 ## 5. 维护约定
+
 
 1. **改代码必须同 PR 改文档**：行为、接口、配置、表结构、错误码任一变化，都要更新对应文档。
 2. **新增模块必须在 [modules.md](./modules.md) 增加章节**：先在 §6 登记，再使用 §5 模板补全；不要另起文档。
@@ -110,30 +128,36 @@
 4. **表结构变化同时更新 [db_sqls.md](./db_sqls.md) 与 [database.md](./database.md)**。
 5. **新增/修改错误码必须同步 [architecture.md](./architecture.md) §7.2 的表格**。
 6. 文档内引用代码使用相对路径（如 `../services/auth_service.cpp`），便于在仓库内跳转。
-7. 已知缺陷修复后，在本文件 §4 与 [README 状态看板](#3-项目状态看板)同步移除或标记「已修复（日期）」。
+7. 已知缺陷修复后，在本文件 §4 与 [README 状态看板](#3-%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81%E7%9C%8B%E6%9D%BF)同步移除或标记「已修复（日期）」。
 8. 不要删除历史章节；被推翻的设计用「已废弃」标注并说明原因，保留决策背景。
+
 
 ## 6. 新增功能接入 checklist
 
+
 复制到 MR 描述中逐项勾选：
 
-- [ ] 在 `app/modules/` 新增模块类（实现 `app::Module`），并在 `AppContext` 构造、`register_routes` 中注册
-- [ ] 路由集中在 `routes/routes.cpp`，标明 HTTP 方法与所需中间件
-- [ ] Controller 完成 JSON / 查询参数校验，缺失字段用 `InvalidJson`，类型/范围错误用 `InvalidParam`
-- [ ] Service 编排业务，所有可预期失败抛 `common::AppException`
-- [ ] Repository 只做单条 SQL 与结果映射，捕获 `sql::SQLException` 转 `DB_ERROR`
-- [ ] 新增错误码时同步 `ErrorCode`、`error_code_name`、`http_status` 与文档表格
-- [ ] 需要登录的接口挂 `AccessAuthMiddleware`/`AdminAccessAuthMiddleware` + 对应 Role 中间件
-- [ ] 业务动作前检查对应的 `BanType`（`All` 已由鉴权中间件兜底）
-- [ ] 新增配置项写入 `config-dev.ini`，并在 `AppConfig::load` 与 `validate` 中处理
-- [ ] 新增表/字段写入 `db_sqls.md` 与 `database.md`，表名走配置
-- [ ] 为 Service / Repository 增加 doctest 单测（使用 `tests/support/test_doubles.h`）
-- [ ] 更新 [modules.md](./modules.md) 对应章节；新发现的临时实现同时登记到本文件 §4 与 [modules.md](./modules.md) §4.7
+
+- 在 `app/modules/` 新增模块类（实现 `app::Module`），并在 `AppContext` 构造、`register_routes` 中注册
+- 路由集中在 `routes/routes.cpp`，标明 HTTP 方法与所需中间件
+- Controller 完成 JSON / 查询参数校验，缺失字段用 `InvalidJson`，类型/范围错误用 `InvalidParam`
+- Service 编排业务，所有可预期失败抛 `common::AppException`
+- Repository 只做单条 SQL 与结果映射，捕获 `sql::SQLException` 转 `DB_ERROR`
+- 新增错误码时同步 `ErrorCode`、`error_code_name`、`http_status` 与文档表格
+- 需要登录的接口挂 `AccessAuthMiddleware`/`AdminAccessAuthMiddleware` + 对应 Role 中间件
+- 业务动作前检查对应的 `BanType`（`All` 已由鉴权中间件兜底）
+- 新增配置项写入 `config-dev.ini`，并在 `AppConfig::load` 与 `validate` 中处理
+- 新增表/字段写入 `db_sqls.md` 与 `database.md`，表名走配置
+- 为 Service / Repository 增加 doctest 单测（使用 `tests/support/test_doubles.h`）
+- 更新 [modules.md](./modules.md) 对应章节；新发现的临时实现同时登记到本文件 §4 与 [modules.md](./modules.md) §4.7
+
 
 ## 7. 后续功能扩展登记（预留）
 
+
 > 新功能开始实现前先在此登记一行，并在 [modules.md](./modules.md) §6 补全详情，避免多人并行时重复实现已有机制。
 > 状态使用：未开始 / 设计中 / 开发中 / 已实现 / 已废弃。
+
 
 | 编号 | 功能 | 状态 | 主要改动位置 | 必须复用的现有机制 | 备注 |
 | --- | --- | --- | --- | --- | --- |
@@ -145,9 +169,11 @@
 | E06 | 文件上传 | 未开始 | 待定 | 统一错误码与鉴权中间件 | 需要新增基础设施章节 |
 | E07 | 封禁过期定时任务 | 未开始 | `app/app.cpp` 或独立 worker | `BlacklistRepository::expire_outdated()` | 修复 R18，需支持多实例互斥 |
 | E08 | 管理员账号管理接口 | 未开始 | `controllers/admin/` | `AdminRoleMiddle`、`AdminAccountRepository` | 需先补 `admin_id` 唯一索引（R22） |
-| | | | | | |
+|  |  |  |  |  |  |
+
 
 ### 7.1 已预留、但尚未使用的扩展点
+
 
 | 扩展点 | 现状 | 使用方式 |
 | --- | --- | --- |

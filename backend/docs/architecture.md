@@ -1,31 +1,31 @@
 # 全局架构与跨模块机制
 
-> 适用代码：`backend/`　最后核对：2026-11-24  
+> 适用代码：`backend/`　最后核对：2026-11-24\
 > 本文只描述**全局**设计；具体接口见 [modules.md](./modules.md)。
 
 ## 1. 技术栈与构建目标
 
-| 类别 | 选型 |
-| --- | --- |
-| 语言 | C++17 |
-| HTTP 框架 | Drogon |
-| JSON | jsoncpp |
-| 加密 | OpenSSL（HMAC-SHA256、PBKDF2） |
-| 数据库 | MySQL，MySQL Connector/C++ |
-| 缓存 | Redis，redis-plus-plus + hiredis |
-| 配置 | 自研 INI 单例 + 环境变量展开 |
-| 日志 | 自研同步日志单例 |
-| 构建 | CMake，CTest |
-| 测试 | doctest 2.4.11 |
+| 类别      | 选型                              |
+| ------- | ------------------------------- |
+| 语言      | C++17                           |
+| HTTP 框架 | Drogon                          |
+| JSON    | jsoncpp                         |
+| 加密      | OpenSSL（HMAC-SHA256、PBKDF2）     |
+| 数据库     | MySQL，MySQL Connector/C++       |
+| 缓存      | Redis，redis-plus-plus + hiredis |
+| 配置      | 自研 INI 单例 + 环境变量展开              |
+| 日志      | 自研同步日志单例                        |
+| 构建      | CMake，CTest                     |
+| 测试      | doctest 2.4.11                  |
 
 根 `CMakeLists.txt` 产出三个业务目标：
 
-| 目标 | 内容 |
-| --- | --- |
-| `sdu_infra`（静态库） | 连接池、INI、日志、配置、密码哈希、JWT 签名器 |
-| `sdu_app` | 中间件、路由、Controller、Service、Repository、utils |
-| `sdu_forum_server` | `app/` 层入口、`AppContext`、三个业务模块 |
-| `tests` | 5 个单测可执行文件，接入 CTest |
+| 目标                 | 内容                                         |
+| ------------------ | ------------------------------------------ |
+| `sdu_infra`（静态库）   | 连接池、INI、日志、配置、密码哈希、JWT 签名器                 |
+| `sdu_app`          | 中间件、路由、Controller、Service、Repository、utils |
+| `sdu_forum_server` | `app/` 层入口、`AppContext`、三个业务模块             |
+| `tests`            | 5 个单测可执行文件，接入 CTest                        |
 
 ## 2. 目录与分层
 
@@ -128,36 +128,36 @@ public:
 
 ### 5.2 配置项清单（与 `AppConfig::load` 对齐）
 
-| 节 | 键 | 类型 | 默认 / 说明 |
-| --- | --- | --- | --- |
-| `server` | `address` | string | `0.0.0.0` |
-| | `port` | int | `8080`，必须非 0 |
-| | `thread_num` | int | `4` |
-| `log` | `level` | string | `INFO` |
-| | `file` | string | 结构体默认 `logs/server.log`；开发 INI 为 `../logs/server.log` |
-| | `console` | bool | `true` |
-| | `max_lines` | int | `100000`，按行轮转阈值 |
-| `database` | `host` / `port` | string/int | `127.0.0.1` / `3306` |
-| | `user` / `password` / `dbname` | string | user、dbname 必填 |
-| | `pool_min` / `pool_max` | int | `5` / `30`，`min>0` 且 `max>=min` |
-| | `max_idle_time` | int | `300` 秒 |
-| | `connection_timeout_ms` | int | `3000` |
-| | `op_num` | int | `4`，每次扩容连接数 |
-| `redis` | `host` / `port` | string/int | `127.0.0.1` / `6379` |
-| | `passward` | string | **代码读取的就是这个拼写**；标准 `password` 无效 |
-| | `db` | int | `0` |
-| `auth` | `issuer` | string | `SDU_Forum` |
-| | `access_jwt_secret` | string | 必填 |
-| | `refresh_jwt_secret` | string | 必填 |
-| | `admin_access_secret` | string | **配置文件未提供，当前为空；`validate` 不校验** |
-| | `admin_refresh_secret` | string | 同上 |
-| | `access_token_minutes` | int | `60`，必须 >0 |
-| | `refresh_token_hours` | int | `168`，必须 >0 |
-| | `hash_secret` | string | **硬编码** `dfacadgafeqwfqvab`，`AppConfig::load` 不读取该键（R20） |
-| | `account_table` | string | `account`，必填 |
-| | `blacklist_table` | string | `blacklist`，必填 |
-| | `admin_account_table` | string | `admin_account`，可缺省 |
-| | `refresh_token_table` | string | **未从 INI 读取**，恒为结构体默认 `refresh_tokens` |
+| 节          | 键                              | 类型         | 默认 / 说明                                                  |
+| ---------- | ------------------------------ | ---------- | -------------------------------------------------------- |
+| `server`   | `address`                      | string     | `0.0.0.0`                                                |
+|            | `port`                         | int        | `8080`，必须非 0                                             |
+|            | `thread_num`                   | int        | `4`                                                      |
+| `log`      | `level`                        | string     | `INFO`                                                   |
+|            | `file`                         | string     | 结构体默认 `logs/server.log`；开发 INI 为 `../logs/server.log`    |
+|            | `console`                      | bool       | `true`                                                   |
+|            | `max_lines`                    | int        | `100000`，按行轮转阈值                                          |
+| `database` | `host` / `port`                | string/int | `127.0.0.1` / `3306`                                     |
+|            | `user` / `password` / `dbname` | string     | user、dbname 必填                                           |
+|            | `pool_min` / `pool_max`        | int        | `5` / `30`，`min>0` 且 `max>=min`                          |
+|            | `max_idle_time`                | int        | `300` 秒                                                  |
+|            | `connection_timeout_ms`        | int        | `3000`                                                   |
+|            | `op_num`                       | int        | `4`，每次扩容连接数                                              |
+| `redis`    | `host` / `port`                | string/int | `127.0.0.1` / `6379`                                     |
+|            | `passward`                     | string     | **代码读取的就是这个拼写**；标准 `password` 无效                         |
+|            | `db`                           | int        | `0`                                                      |
+| `auth`     | `issuer`                       | string     | `SDU_Forum`                                              |
+|            | `access_jwt_secret`            | string     | 必填                                                       |
+|            | `refresh_jwt_secret`           | string     | 必填                                                       |
+|            | `admin_access_secret`          | string     | **配置文件未提供，当前为空；`validate` 不校验**                          |
+|            | `admin_refresh_secret`         | string     | 同上                                                       |
+|            | `access_token_minutes`         | int        | `60`，必须 >0                                               |
+|            | `refresh_token_hours`          | int        | `168`，必须 >0                                              |
+|            | `hash_secret`                  | string     | **硬编码** `dfacadgafeqwfqvab`，`AppConfig::load` 不读取该键（R20） |
+|            | `account_table`                | string     | `account`，必填                                             |
+|            | `blacklist_table`              | string     | `blacklist`，必填                                           |
+|            | `admin_account_table`          | string     | `admin_account`，可缺省                                      |
+|            | `refresh_token_table`          | string     | **未从 INI 读取**，恒为结构体默认 `refresh_tokens`                   |
 
 ### 5.3 配置约束
 
@@ -182,14 +182,14 @@ public:
 
 ### 6.2 中间件清单
 
-| 类 | 作用 | 关键属性 |
-| --- | --- | --- |
-| `AccessAuthMiddleware` | 校验用户 access token、查账号、查 `All` 封禁 | `public_id`、`role` |
-| `RefreshAuthMiddleware` | 校验用户 refresh token（同上） | `public_id`、`role` |
-| `AdminAccessAuthMiddleware` | 校验管理员 access token，不查账号/封禁 | `admin_id`、`role` |
-| `AdminRefreshAuthMiddleware` | 校验管理员 refresh token | `admin_id`、`role` |
-| `UserRoleMiddleware` | 要求 `role == sduforum_user` | 读取 `role` |
-| `AdminRoleMiddle` | 要求 `role == sduforum_admin` | 读取 `role` |
+| 类                            | 作用                               | 关键属性               |
+| ---------------------------- | -------------------------------- | ------------------ |
+| `AccessAuthMiddleware`       | 校验用户 access token、查账号、查 `All` 封禁 | `public_id`、`role` |
+| `RefreshAuthMiddleware`      | 校验用户 refresh token（同上）           | `public_id`、`role` |
+| `AdminAccessAuthMiddleware`  | 校验管理员 access token，不查账号/封禁       | `admin_id`、`role`  |
+| `AdminRefreshAuthMiddleware` | 校验管理员 refresh token              | `admin_id`、`role`  |
+| `UserRoleMiddleware`         | 要求 `role == sduforum_user`       | 读取 `role`          |
+| `AdminRoleMiddle`            | 要求 `role == sduforum_admin`      | 读取 `role`          |
 
 - 用户与管理员**共用属性键 `role`**，但各自路由链只挂自己的 Role 中间件。
 - `current_public_id(req)` / `current_admin_id(req)` 是 Controller 获取身份的**唯一**方式，禁止从 Header 重新解析。
@@ -231,19 +231,19 @@ HTTP 204，无 body
 
 ### 7.2 错误码映射
 
-| `ErrorCode` | 字符串 | HTTP | 典型场景 |
-| --- | --- | --- | --- |
-| `InvalidJson` | `INVALID_JSON` | 400 | body 非 JSON、缺字段 |
-| `InvalidParam` | `INVALID_PARAM` | 400 | 类型/范围/枚举非法 |
-| `Unauthorized` | `UNAUTHORIZED` | 401 | 缺 token、token 无效/已吊销/过期 |
-| `InvalidCredentials` | `INVALID_CREDENTIALS` | 401 | 账号不存在或密码错误 |
-| `AccountBanned` | `ACCOUNT_BANNED` | 403 | 登录时命中封禁 |
-| `Forbidden` | `FORBIDDEN` | 403 | 角色不匹配 |
-| `NotFound` | `NOT_FOUND` | 404 | 账号/封禁记录不存在 |
-| `Conflict` | `CONFLICT` | 409 | 重复封禁 |
-| `DatabaseError` | `DB_ERROR` | 500 | SQL 异常、连接不可用 |
-| `RedisError` | `" REDIS_ERROR"` | 500 | 缓存异常；**注意名称含前导空格（缺陷 R7）** |
-| `InternalError` | `INTERNAL_ERROR` | 500 | 未预期异常 |
+| `ErrorCode`          | 字符串                   | HTTP | 典型场景                      |
+| -------------------- | --------------------- | ---- | ------------------------- |
+| `InvalidJson`        | `INVALID_JSON`        | 400  | body 非 JSON、缺字段           |
+| `InvalidParam`       | `INVALID_PARAM`       | 400  | 类型/范围/枚举非法                |
+| `Unauthorized`       | `UNAUTHORIZED`        | 401  | 缺 token、token 无效/已吊销/过期   |
+| `InvalidCredentials` | `INVALID_CREDENTIALS` | 401  | 账号不存在或密码错误                |
+| `AccountBanned`      | `ACCOUNT_BANNED`      | 403  | 登录时命中封禁                   |
+| `Forbidden`          | `FORBIDDEN`           | 403  | 角色不匹配                     |
+| `NotFound`           | `NOT_FOUND`           | 404  | 账号/封禁记录不存在                |
+| `Conflict`           | `CONFLICT`            | 409  | 重复封禁                      |
+| `DatabaseError`      | `DB_ERROR`            | 500  | SQL 异常、连接不可用              |
+| `RedisError`         | `" REDIS_ERROR"`      | 500  | 缓存异常；**注意名称含前导空格（缺陷 R7）** |
+| `InternalError`      | `INTERNAL_ERROR`      | 500  | 未预期异常                     |
 
 ### 7.3 异常规范
 
@@ -280,10 +280,10 @@ Payload：
 
 当前方案（**必须保持两边一致**）：
 
-| Token | 存储 | 键 / 值 | TTL |
-| --- | --- | --- | --- |
-| refresh token | MySQL `refresh_tokens` 表（**仅吊销时写入**，有效 token 不落库） | `token_hash` | 写入时带 `expires_at` |
-| access token | Redis | key/value 均为 `token_hash` | access TTL |
+| Token         | 存储                                                | 键 / 值                     | TTL               |
+| ------------- | ------------------------------------------------- | ------------------------- | ----------------- |
+| refresh token | MySQL `refresh_tokens` 表（**仅吊销时写入**，有效 token 不落库） | `token_hash`              | 写入时带 `expires_at` |
+| access token  | Redis                                             | key/value 均为 `token_hash` | access TTL        |
 
 - `TokenRepository::hash_secret()` 只是返回 `JwtConfig::hash_secret`（**硬编码默认值**，不从 INI 读取）；Service/中间件调用 `utils::hmac_sha256_base64url(hash_secret, token)` 生成存储哈希，**不存明文**。
 - 中间件的判定顺序：**先查吊销，再验签**。原因：吊销记录可覆盖「签名仍有效但已登出」的情况。
@@ -304,27 +304,27 @@ Payload：
 
 ### 9.1 维度（`BanType`）
 
-| 值 | 名称 | 语义 |
-| --- | --- | --- |
-| 0 | `All` | 全站封禁 |
-| 1 | `Comment` | 禁止评论 |
-| 2 | `Post` | 禁止发帖 |
-| 3 | `PrivateMessage` | 禁止私信 |
-| 4 | `Login` | 禁止登录 |
-| 5 | `ProfileEdit` | 禁止修改资料 |
-| 6 | `Upload` | 禁止上传 |
-| 7 | `ReadOnly` | 只读模式 |
+| 值 | 名称               | 语义     |
+| - | ---------------- | ------ |
+| 0 | `All`            | 全站封禁   |
+| 1 | `Comment`        | 禁止评论   |
+| 2 | `Post`           | 禁止发帖   |
+| 3 | `PrivateMessage` | 禁止私信   |
+| 4 | `Login`          | 禁止登录   |
+| 5 | `ProfileEdit`    | 禁止修改资料 |
+| 6 | `Upload`         | 禁止上传   |
+| 7 | `ReadOnly`       | 只读模式   |
 
 ### 9.2 原因码分段（`ReasonCode`）
 
-| 段 | 含义 | 备注 |
-| --- | --- | --- |
-| 0 | 自定义原因 | 必须提供 `reason` 原文 |
-| 1001–1008 | 内容违规 | 广告、违法、色情、暴力、政治、版权、隐私、谣言 |
-| 2001–2007 | 行为违规 | 人身攻击、骚扰、仇恨、冒充、屡犯、恶意举报、引战 |
-| 3001–3004 | 账号安全 | 盗号、共享、机器人、安全风险 |
-| 4001–4002 | 系统自动 | `auto_only=true`，来源必须是 auto/report |
-| 5001–5003 / 5999 | 其他 | 用户申请、长期未登录、其他、管理员自定义 |
+| 段                | 含义    | 备注                                 |
+| ---------------- | ----- | ---------------------------------- |
+| 0                | 自定义原因 | 必须提供 `reason` 原文                   |
+| 1001–1008        | 内容违规  | 广告、违法、色情、暴力、政治、版权、隐私、谣言            |
+| 2001–2007        | 行为违规  | 人身攻击、骚扰、仇恨、冒充、屡犯、恶意举报、引战           |
+| 3001–3004        | 账号安全  | 盗号、共享、机器人、安全风险                     |
+| 4001–4002        | 系统自动  | `auto_only=true`，来源必须是 auto/report |
+| 5001–5003 / 5999 | 其他    | 用户申请、长期未登录、其他、管理员自定义               |
 
 **枚举只增不改**：废弃码保留数值并标记 `deprecated`。
 
@@ -385,16 +385,16 @@ status = 1 AND expire_at > NOW()
 
 ## 10. 跨模块公共机制
 
-| 机制 | 实现 | 约束 |
-| --- | --- | --- |
-| 连接获取 | `repository::IDbConnectionProvider::acquire()` / `ICacheConnectionProvider` | Repository 只依赖接口，禁止直接用连接池单例 |
-| RAII | `PooledDbConnection` / `PooledCacheConnection` | 离开作用域自动归还；空守卫表示获取失败 |
-| 表名注入 | Repository 构造函数接收表名 | 禁止硬编码 |
-| 错误转换 | Repository 捕获 `sql::SQLException` → `DB_ERROR` | 禁止把 SQL 异常泄漏到上层 |
-| 身份注入 | 中间件 attributes | `public_id` / `admin_id` / `role` |
-| 时间格式 | `"YYYY-MM-DD HH:MM:SS"` | 封禁 `expire_at` 用**本地时区**（`add_time_to_now`）生成并与 `NOW()` 比较；`utils::timestamp_to_string` 用 **UTC**，仅用于 refresh token 审计（R21） |
-| 日志 | `LOGD/LOGI/LOGW/LOGE` | 敏感信息（密码、token）禁止打印 |
-| 单例 | `AppConfig` / `IniFile` / `Logger` / 两个连接池 | 只在 `app` 层初始化；测试用替身不要触发单例 |
+| 机制   | 实现                                                                          | 约束                                                                                                                          |
+| ---- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 连接获取 | `repository::IDbConnectionProvider::acquire()` / `ICacheConnectionProvider` | Repository 只依赖接口，禁止直接用连接池单例                                                                                                 |
+| RAII | `PooledDbConnection` / `PooledCacheConnection`                              | 离开作用域自动归还；空守卫表示获取失败                                                                                                         |
+| 表名注入 | Repository 构造函数接收表名                                                         | 禁止硬编码                                                                                                                       |
+| 错误转换 | Repository 捕获 `sql::SQLException` → `DB_ERROR`                              | 禁止把 SQL 异常泄漏到上层                                                                                                             |
+| 身份注入 | 中间件 attributes                                                              | `public_id` / `admin_id` / `role`                                                                                           |
+| 时间格式 | `"YYYY-MM-DD HH:MM:SS"`                                                     | 封禁 `expire_at` 用**本地时区**（`add_time_to_now`）生成并与 `NOW()` 比较；`utils::timestamp_to_string` 用 **UTC**，仅用于 refresh token 审计（R21） |
+| 日志   | `LOGD/LOGI/LOGW/LOGE`                                                       | 敏感信息（密码、token）禁止打印                                                                                                          |
+| 单例   | `AppConfig` / `IniFile` / `Logger` / 两个连接池                                  | 只在 `app` 层初始化；测试用替身不要触发单例                                                                                                   |
 
 ## 11. 请求生命周期（用户接口示例）
 

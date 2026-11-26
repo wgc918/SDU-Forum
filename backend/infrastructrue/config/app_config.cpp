@@ -202,8 +202,6 @@ void AppConfig::validate() const
         throw std::runtime_error("config item [redis.host] is required");
     if (m_redis.port == 0)
         throw std::runtime_error("config item [redis.port] is invalid");
-    if (m_redis.password.empty())
-        throw std::runtime_error("config item [redis.password] is required");
     if (m_redis.db < 0)
         throw std::runtime_error("config item [redis.db] is invalid");
 }

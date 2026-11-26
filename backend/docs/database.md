@@ -15,9 +15,7 @@
 | `account` | 普通用户账号 | `auth.account_table` | `account` |
 | `admin_account` | 管理员账号 | `auth.admin_account_table` | `admin_account` |
 | `blacklist` | 封禁记录 | `auth.blacklist_table` | `blacklist` |
-| `refresh_tokens` | 已吊销 refresh token | **未从 INI 读取** | `refresh_tokens` |
-
-> `refresh_token_table` 在 `AuthConfig` 中有字段，但 `AppConfig::load()` 从未读取它，永远是默认值。修改表名时只能改代码，不能只改配置（见风险 R6b）。
+| `refresh_tokens` | 已吊销 refresh token | `auth.refresh_token_table` | `refresh_tokens` |
 
 ## 2. `account` 用户账号表
 
