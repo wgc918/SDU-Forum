@@ -31,4 +31,4 @@ public:
 private:
     service::AdminAuthService& m_auth_service;
 };
-}  // namespace manager::controller
+}  // namespace admin::controller

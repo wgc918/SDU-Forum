@@ -19,15 +19,19 @@ public:
     AdminUserController(admin::service::AdminUserService& admin_user_service);
 
     void ban(const drogon::HttpRequestPtr&                         req,
-             std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+             std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+             const uint64_t                                        account_id);
 
     void unban(const drogon::HttpRequestPtr&                         req,
-               std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+               std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+               const uint64_t                                        account_id);
 
     void get_history(const drogon::HttpRequestPtr&                         req,
-                 std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+                     std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+                     const uint64_t                                        account_id);
+
     void get_blacklist(const drogon::HttpRequestPtr&                         req,
-                   std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+                       std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 
 private:
     admin::service::AdminUserService& m_service;

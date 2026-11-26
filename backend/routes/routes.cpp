@@ -4,6 +4,7 @@
 #include <drogon/drogon.h>
 #include <json/json.h>
 
+#include <cstdint>
 #include <string>
 
 #include "controllers/admin/auth_controller.h"
@@ -55,7 +56,7 @@ void register_auth_routes(drogon::HttpAppFramework& app, controller::AuthControl
         [&controller](const drogon::HttpRequestPtr&                         req,
                       std::function<void(const drogon::HttpResponsePtr&)>&& callback)
         { controller.logoff(req, std::move(callback)); },
-        {drogon::Delete, middleware::AccessAuthMiddleware::classTypeName(),
+        {drogon::Post, middleware::AccessAuthMiddleware::classTypeName(),
          middleware::UserRoleMiddleware::classTypeName()});
 }
 
@@ -94,26 +95,29 @@ void register_admin_user_routes(drogon::HttpAppFramework&               app,
     const std::string base_url = "/admin/api/v1/users";
 
     app.registerHandler(
-        base_url + "/ban",
+        base_url + "/{account_id}/ban",
         [&controller](const drogon::HttpRequestPtr&                         req,
-                      std::function<void(const drogon::HttpResponsePtr&)>&& callback)
-        { controller.ban(req, std::move(callback)); },
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+                      const uint64_t                                        account_id)
+        { controller.ban(req, std::move(callback), account_id); },
         {drogon::Post, middleware::AdminAccessAuthMiddleware::classTypeName(),
          middleware::AdminRoleMiddle::classTypeName()});
 
     app.registerHandler(
-        base_url + "/unban",
+        base_url + "/{account_id}/unban",
         [&controller](const drogon::HttpRequestPtr&                         req,
-                      std::function<void(const drogon::HttpResponsePtr&)>&& callback)
-        { controller.unban(req, std::move(callback)); },
-        {drogon::Post, middleware::AdminAccessAuthMiddleware::classTypeName(),
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+                      const uint64_t                                        account_id)
+        { controller.unban(req, std::move(callback), account_id); },
+        {drogon::Patch, middleware::AdminAccessAuthMiddleware::classTypeName(),
          middleware::AdminRoleMiddle::classTypeName()});
 
     app.registerHandler(
         base_url + "/history",
         [&controller](const drogon::HttpRequestPtr&                         req,
-                      std::function<void(const drogon::HttpResponsePtr&)>&& callback)
-        { controller.get_history(req, std::move(callback)); },
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+                      const uint64_t                                        account_id)
+        { controller.get_history(req, std::move(callback), account_id); },
         {drogon::Get, middleware::AdminAccessAuthMiddleware::classTypeName(),
          middleware::AdminRoleMiddle::classTypeName()});
 

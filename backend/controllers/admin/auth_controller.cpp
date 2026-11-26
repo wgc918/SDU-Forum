@@ -10,14 +10,13 @@
 
 #include "common/api_response.h"
 #include "common/errors.h"
+#include "common/param_validator.h"
+#include "controllers/constants.h"
 #include "services/admin/auth_service.h"
 #include "utils/utils.h"
 
 namespace admin::controller
 {
-
-constexpr std::size_t kMaxAdminIdLength  = 8;
-constexpr std::size_t kMaxPasswordLength = 8;
 
 AdminAuthController::AdminAuthController(admin::service::AdminAuthService& auth_service)
     : m_auth_service(auth_service)
@@ -32,25 +31,16 @@ void AdminAuthController::login(const drogon::HttpRequestPtr&                   
         throw common::AppException(common::ErrorCode::InvalidJson,
                                    "request body must be a valid JSON object");
 
-    const auto& body = *json;
-    if (!body.isMember("admin_id"))
-        throw common::AppException(common::ErrorCode::InvalidJson, "missing param: admin_id");
-    if (!body.isMember("password"))
-        throw common::AppException(common::ErrorCode::InvalidJson, "missing param: password");
-    if (!body["admin_id"].isString() || !body["password"].isString())
-        throw common::AppException(common::ErrorCode::InvalidParam,
-                                   "admin_id and password are required and must be strings");
+    common::BodyParams param(*json);
 
-    const std::string admin_id = utils::trim(body["admin_id"].asString());
-    const std::string password = body["password"].asString();
+    const std::string admin_id =
+        param.field("admin_id").require_string().not_empty().equal_length(kAdminIdLength).trimmed();
 
-    if (admin_id.empty() || password.empty())
-        throw common::AppException(common::ErrorCode::InvalidParam,
-                                   "admin_id and password must not be empty");
-    if (admin_id.size() > kMaxAdminIdLength)
-        throw common::AppException(common::ErrorCode::InvalidParam, "admin_id is too long");
-    if (password.size() > kMaxPasswordLength)
-        throw common::AppException(common::ErrorCode::InvalidParam, "password is too long");
+    const std::string password = param.field("password")
+                                     .require_string()
+                                     .not_empty()
+                                     .equal_length(kPasswordLength)
+                                     .trimmed();
 
     auto result = m_auth_service.login(admin_id, password);
 
@@ -79,16 +69,12 @@ void AdminAuthController::logout(const drogon::HttpRequestPtr&                  
     if (json == nullptr)
         throw common::AppException(common::ErrorCode::InvalidJson,
                                    "request body must be a valid JSON object");
-    const Json::Value body = *json;
 
-    if (!body.isMember("refresh_token"))
-        throw common::AppException(common::ErrorCode::InvalidParam, "missing param: refresh_token");
-    if (!body["refresh_token"].isString())
-        throw common::AppException(common::ErrorCode::InvalidParam, "refresh_token must be string");
-    const std::string refresh_token = body["refresh_token"].asString();
-    if (refresh_token.empty())
-        throw common::AppException(common::ErrorCode::InvalidParam,
-                                   "refresh_token must not be empty");
+    common::BodyParams param(*json);
+
+    const std::string refresh_token =
+        param.field("refresh_token").require_string().not_empty().trimmed();
+
     m_auth_service.logout(refresh_token, *token);
     callback(common::no_content_response());
 }
@@ -108,17 +94,12 @@ void AdminAuthController::refresh_token(
     if (json == nullptr)
         throw common::AppException(common::ErrorCode::InvalidJson,
                                    "request body must be a valid JSON object");
-    const Json::Value body = *json;
-    if (!body.isMember("refreshing"))
-        throw common::AppException(common::ErrorCode::InvalidParam, "missing param: refreshing");
-    if (!body.isMember("access_token"))
-        throw common::AppException(common::ErrorCode::InvalidParam, "missing param: access_token");
-    if (!body["refreshing"].isBool())
-        throw common::AppException(common::ErrorCode::InvalidParam, "refreshing must be bool");
-    if (!body["access_token"].isString())
-        throw common::AppException(common::ErrorCode::InvalidParam, "access_token must be string");
-    bool              refreshing   = body["refreshing"].asBool();
-    const std::string access_token = body["access_token"].asString();
+
+    common::BodyParams param(*json);
+
+    bool              refreshing = param.field("refreshing").require_bool().asBool();
+    const std::string access_token =
+        param.field("access_token").require_string().not_empty().trimmed();
 
     service::AdminLoginResult result =
         m_auth_service.refresh_token(*token, access_token, refreshing);
