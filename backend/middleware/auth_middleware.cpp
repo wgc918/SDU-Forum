@@ -4,6 +4,7 @@
 #include <drogon/drogon_callbacks.h>
 
 #include <cctype>
+#include <cstdint>
 #include <optional>
 #include <utility>
 
@@ -97,8 +98,10 @@ void AuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
         return;
     }
 
-    req->attributes()->insert(kUserIdAttribute, payload->sub);
+    req->attributes()->insert(kPublicIdAttribute, payload->sub);
     req->attributes()->insert(kUserRoleAttribute, payload->role);
+    req->attributes()->insert(kUserIdAttribute, account->user_id);
+    req->attributes()->insert(KAccountIdAttribute, account->id);
     next_cb(std::move(mcb));
 }
 
@@ -134,7 +137,16 @@ void RefreshAuthMiddleware::invoke(const drogon::HttpRequestPtr&    req,
 
 std::string current_public_id(const drogon::HttpRequestPtr& req)
 {
+    return req->attributes()->get<std::string>(kPublicIdAttribute);
+}
+
+std::string current_user_id(const drogon::HttpRequestPtr& req)
+{
     return req->attributes()->get<std::string>(kUserIdAttribute);
 }
 
+uint64_t current_account_id(const drogon::HttpRequestPtr& req)
+{
+    return req->attributes()->get<uint64_t>(KAccountIdAttribute);
+}
 }  // namespace middleware
